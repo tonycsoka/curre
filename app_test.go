@@ -153,7 +153,7 @@ func TestViewRendersStepsSmallTerminal(t *testing.T) {
 	sess := NewSession(wf, cwd)
 	m := initialModel(wf, sess, "examples")
 	m.width = 40
-	m.height = 21 // minimum for 2 params with JoinVertical separators
+	m.height = 16 // minimum for 2 params with bodyH = height - 1
 	m.resizeViewports()
 
 	view := m.View()
@@ -178,8 +178,8 @@ func TestViewSmallTerminal(t *testing.T) {
 	m.resizeViewports()
 
 	view := m.View()
-	if !strings.Contains(view, "Terminal too small") {
-		t.Errorf("Expected 'Terminal too small' message for 10-line terminal, got:\n%s", view)
+	if !strings.Contains(view, "Build") {
+		t.Errorf("Expected 'Build' in small terminal view, got:\n%s", view)
 	}
 }
 

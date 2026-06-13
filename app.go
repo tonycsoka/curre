@@ -13,12 +13,12 @@ import (
 )
 
 var (
-	// Step state styles
-	stepPendingStyle  = lipgloss.NewStyle().Padding(0, 1)
-	stepRunningStyle  = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("33")).Bold(true)
-	stepSuccessStyle  = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("42"))
-	stepFailedStyle   = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("196"))
-	stepSkippedStyle  = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("244")).Strikethrough(true)
+	// Step state styles (no padding here — leftPaneStyle handles it)
+	stepPendingStyle  = lipgloss.NewStyle()
+	stepRunningStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Bold(true)
+	stepSuccessStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	stepFailedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	stepSkippedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Strikethrough(true)
 
 	// Pane styles
 	leftPaneStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1)
@@ -220,63 +220,37 @@ func (m model) View() string {
 		return "Loading..."
 	}
 
-	leftFrameV, _ := leftPaneStyle.GetFrameSize()
-	paneFrameV, paneFrameH := paneStyle.GetFrameSize()
-
-	// lipgloss.JoinVertical adds 1 empty separator line between each pair of blocks.
-	// Right side: 3 panes joined = 2 separator lines.
-	// Body + footer: 2 blocks joined = 1 separator line.
-	// Total separators = 3. Plus 1 line for footer content = 4.
-	bodyH := m.height - 4
-
-	paramContentH := m.paramLines()
-	if len(m.paramNames) == 0 {
-		paramContentH = 1
-	}
-
-	// Right panes: each pane = title(1) + content + frameV
-	// JoinVertical of 3 panes adds 2 separator lines.
-	// So: paramsPaneH + stdoutPaneH + stderrPaneH + 2 = bodyH
-	minBodyH := paramContentH + 1 + paneFrameV + 1 + paneFrameV + 1 + paneFrameV + 2
-	if bodyH < minBodyH {
-		return fmt.Sprintf("Terminal too small. Need at least %d rows.\n", minBodyH+4)
-	}
-
-	remainingContentH := bodyH - 2 - paramContentH - 3 - 3*paneFrameV
-	stdoutVH := max(0, remainingContentH/2)
-	stderrVH := remainingContentH - stdoutVH
-
-	paramsPaneH := paramContentH + 1 + paneFrameV
-	stdoutPaneH := stdoutVH + 1 + paneFrameV
-	stderrPaneH := stderrVH + 1 + paneFrameV
+	paneFrameH := paneStyle.GetHorizontalFrameSize()
 
 	leftW := m.leftWidth()
 	rightW := m.rightWidth()
-	leftPaneH := bodyH / 2
 
-	leftContent := m.renderStepListContent(m.leftContentW(), leftPaneH-leftFrameV)
-	left := leftPaneStyle.Width(leftW).Height(leftPaneH).Render(leftContent)
+	leftContentRaw := m.renderStepListContent(m.leftContentW())
+	leftContentH := max(1, m.height-1-leftPaneStyle.GetVerticalFrameSize())
+	leftContent := lipgloss.NewStyle().MaxHeight(leftContentH).Render(leftContentRaw)
+	left := leftPaneStyle.Width(max(2, leftW-leftPaneStyle.GetHorizontalFrameSize())).Height(max(1, m.height-1-leftPaneStyle.GetVerticalFrameSize())).Render(leftContent)
 
-	rightContentW := rightW - paneFrameH
+	rightContentW := max(2, rightW-paneFrameH)
 	paramsContent := m.renderParamContent(rightContentW)
 	stdoutContent := m.stdoutViewport.View()
 	stderrContent := m.stderrViewport.View()
 
-	params := paneStyle.Width(rightW).Height(paramsPaneH).Render(
+	params := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
 		paneTitleStyle.Render("Parameters") + "\n" + paramsContent)
-	stdout := paneStyle.Width(rightW).Height(stdoutPaneH).Render(
+	stdout := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
 		paneTitleStyle.Render("Stdout") + "\n" + stdoutContent)
-	stderr := paneStyle.Width(rightW).Height(stderrPaneH).Render(
+	stderr := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
 		paneTitleStyle.Render("Stderr") + "\n" + stderrContent)
 
 	right := lipgloss.JoinVertical(lipgloss.Left, params, stdout, stderr)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-	footer := lipgloss.NewStyle().Height(1).Width(m.width).Render(
+	footer := lipgloss.NewStyle().Height(1).Render(
 		"↑/↓ nav  r run  b skip  n skip  tab params  s sessions  q quit",
 	)
 
-	return lipgloss.JoinVertical(lipgloss.Left, body, footer)
+	all := lipgloss.JoinVertical(lipgloss.Left, body, footer)
+	return all
 }
 
 // --- Layout ---
@@ -290,11 +264,11 @@ func (m model) leftWidth() int {
 }
 
 func (m model) rightWidth() int {
-	return max(m.width-m.leftWidth()-1, 10)
+	return max(m.width-m.leftWidth(), 10)
 }
 
 func (m model) leftContentW() int {
-	_, leftFrameH := leftPaneStyle.GetFrameSize()
+	leftFrameH := leftPaneStyle.GetHorizontalFrameSize()
 	return max(2, m.leftWidth()-leftFrameH)
 }
 
@@ -306,22 +280,30 @@ func (m model) paramLines() int {
 }
 
 func (m *model) resizeViewports() {
-	paneFrameV, paneFrameH := paneStyle.GetFrameSize()
-	paramContentH := m.paramLines()
-	if len(m.paramNames) == 0 {
-		paramContentH = 1
-	}
-
-	// Same math as View(): bodyH = height - 4, minus 2 for right JoinVertical separators
-	bodyH := m.height - 4
-	remainingContentH := bodyH - 2 - paramContentH - 3 - 3*paneFrameV
-	if remainingContentH < 0 {
-		remainingContentH = 0
-	}
-	stdoutVH := max(0, remainingContentH/2)
-	stderrVH := remainingContentH - stdoutVH
-
+	paneFrameH := paneStyle.GetHorizontalFrameSize()
+	paneFrameV := paneStyle.GetVerticalFrameSize()
 	viewportW := max(2, m.rightWidth()-paneFrameH)
+
+	// Calculate viewport heights based on available space
+	paramLines := m.paramLines()
+	if len(m.paramNames) == 0 {
+		paramLines = 1
+	}
+	paramPaneContent := paramLines + 1 // +1 for title line
+	// Overhead: 3 pane borders + 2 title lines for stdout/stderr
+	// (the params title is already counted in paramPaneContent)
+	totalOverhead := 3*paneFrameV + 2
+	remaining := m.height - 1 - paramPaneContent - totalOverhead
+
+	var stdoutVH, stderrVH int
+	if remaining < 6 {
+		stdoutVH = 3
+		stderrVH = 3
+	} else {
+		stdoutVH = max(3, remaining/2)
+		stderrVH = max(3, remaining-stdoutVH)
+	}
+
 	m.stdoutViewport = viewport.New(viewportW, stdoutVH)
 	m.stdoutViewport.SetContent(string(m.stdoutBuffer))
 	m.stderrViewport = viewport.New(viewportW, stderrVH)
@@ -330,7 +312,7 @@ func (m *model) resizeViewports() {
 
 // --- Content renderers ---
 
-func (m model) renderStepListContent(w, h int) string {
+func (m model) renderStepListContent(w int) string {
 	if m.workflow == nil {
 		return "No workflow"
 	}
@@ -372,7 +354,7 @@ func (m model) renderStepListContent(w, h int) string {
 		}
 
 		icon := m.statusIcon(state.Status)
-		line := style.Render(fmt.Sprintf("%s%s %s — %s", prefix, icon, step.Name, statusText))
+		line := style.Copy().MaxWidth(w).Render(fmt.Sprintf("%s%s %s — %s", prefix, icon, step.Name, statusText))
 		lines = append(lines, line)
 	}
 
@@ -430,7 +412,7 @@ func (m model) renderParamContent(w int) string {
 			labelStyle = labelStyle.Copy().Underline(true)
 		}
 
-		label := labelStyle.Render(fmt.Sprintf("%s: %s", name, param.Description))
+		label := labelStyle.MaxWidth(w).Render(fmt.Sprintf("%s: %s", name, param.Description))
 		lines = append(lines, label, input.View(), "")
 	}
 
@@ -503,10 +485,11 @@ func (m *model) updateParamInputs() {
 	if m.workflow == nil {
 		return
 	}
-	_, paneFrameH := paneStyle.GetFrameSize()
+	paneFrameH := paneStyle.GetHorizontalFrameSize()
 	for name, param := range m.workflow.Parameters {
 		val := m.session.GetParameterValue(name, m.workflow)
 		input := textinput.New()
+		input.Prompt = ""
 		input.Placeholder = param.Default
 		input.SetValue(val)
 		input.Width = max(2, m.rightWidth()-paneFrameH)
@@ -516,7 +499,7 @@ func (m *model) updateParamInputs() {
 }
 
 func (m *model) updateParamInputWidths() {
-	_, paneFrameH := paneStyle.GetFrameSize()
+	paneFrameH := paneStyle.GetHorizontalFrameSize()
 	w := max(2, m.rightWidth()-paneFrameH)
 	for name, input := range m.paramInputs {
 		input.Width = w
