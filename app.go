@@ -84,7 +84,10 @@ type model struct {
 	stdoutBuffer  []byte
 	stderrBuffer  []byte
 
-	liveOutputs map[string]liveOutput // per-step buffers for running steps
+	liveOutputs map[string]*liveOutput // per-step buffers for running steps
+
+	mdRendererCache map[int]*glamour.TermRenderer // cached glamour renderers per width
+	mdViewportLines []string                      // cached split of markdown content
 
 	savePending bool // debounce flag for autoSave
 	saveErr    string // transient error from autoSave
@@ -98,7 +101,7 @@ func initialModel(wf *Workflow, session *Session, workflowDir string) model {
 		paramInputs:  make(map[string]textinput.Model),
 		paramNames:   make([]string, 0, len(wf.Parameters)),
 		focusedParam: -1,
-		liveOutputs:  make(map[string]liveOutput),
+		liveOutputs:  make(map[string]*liveOutput),
 	}
 	for name := range wf.Parameters {
 		m.paramNames = append(m.paramNames, name)
@@ -129,8 +132,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shellStdoutMsg:
 		if m.currentStepID == msg.stepID {
 			liveOut := m.liveOutputs[msg.stepID]
+			if liveOut == nil {
+				liveOut = &liveOutput{}
+				m.liveOutputs[msg.stepID] = liveOut
+			}
 			liveOut.stdout = append(liveOut.stdout, msg.line...)
-			m.liveOutputs[msg.stepID] = liveOut
 			if m.workflow != nil && m.cursor < len(m.workflow.Steps) && m.workflow.Steps[m.cursor].ID == msg.stepID {
 				m.stdoutBuffer = liveOut.stdout
 				m.stdoutViewport.SetContent(string(m.stdoutBuffer))
@@ -144,8 +150,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shellStderrMsg:
 		if m.currentStepID == msg.stepID {
 			liveOut := m.liveOutputs[msg.stepID]
+			if liveOut == nil {
+				liveOut = &liveOutput{}
+				m.liveOutputs[msg.stepID] = liveOut
+			}
 			liveOut.stderr = append(liveOut.stderr, msg.line...)
-			m.liveOutputs[msg.stepID] = liveOut
 			if m.workflow != nil && m.cursor < len(m.workflow.Steps) && m.workflow.Steps[m.cursor].ID == msg.stepID {
 				m.stderrBuffer = liveOut.stderr
 				m.stderrViewport.SetContent(string(m.stderrBuffer))
@@ -162,20 +171,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.runner != nil {
 				stdoutLines, stderrLines := m.runner.Drain()
 				liveOut := m.liveOutputs[msg.stepID]
+				if liveOut == nil {
+					liveOut = &liveOutput{}
+					m.liveOutputs[msg.stepID] = liveOut
+				}
 				for _, line := range stdoutLines {
 					liveOut.stdout = append(liveOut.stdout, line...)
 				}
 				for _, line := range stderrLines {
 					liveOut.stderr = append(liveOut.stderr, line...)
 				}
-				m.liveOutputs[msg.stepID] = liveOut
 			}
-			m.session.UpdateStepState(msg.stepID, StepState{
-				Status:   msg.status,
-				ExitCode: msg.exitCode,
-				Stdout:   string(m.liveOutputs[msg.stepID].stdout),
-				Stderr:   string(m.liveOutputs[msg.stepID].stderr),
-			})
+			liveOut := m.liveOutputs[msg.stepID]
+			if liveOut != nil {
+				m.session.UpdateStepState(msg.stepID, StepState{
+					Status:   msg.status,
+					ExitCode: msg.exitCode,
+					Stdout:   string(liveOut.stdout),
+					Stderr:   string(liveOut.stderr),
+				})
+			}
 			delete(m.liveOutputs, msg.stepID)
 		}
 		m.runner = nil
@@ -379,7 +394,7 @@ func (m model) View() tea.View {
 	// Glamour already wraps at the correct width, so we render directly.
 	var stdoutContent string
 	if m.workflow != nil && m.cursor < len(m.workflow.Steps) && m.workflow.Steps[m.cursor].OutputType == OutputMarkdown && m.stdoutViewport.GetContent() != "" {
-		stdoutContent = m.renderViewportContent(m.stdoutViewport)
+		stdoutContent = m.renderViewportContent()
 	} else {
 		stdoutContent = m.stdoutViewport.View()
 	}
@@ -505,6 +520,7 @@ func (m *model) refreshStdoutContent() {
 		}
 		m.stdoutViewport.SetContent(stdoutStr)
 		m.stderrViewport.SetContent(string(m.stderrBuffer))
+		m.mdViewportLines = strings.Split(stdoutStr, "\n")
 		return
 	}
 
@@ -512,6 +528,7 @@ func (m *model) refreshStdoutContent() {
 	m.stdoutViewport.SetWidth(normalWidth)
 	m.stdoutViewport.SetContent(stdoutStr)
 	m.stderrViewport.SetContent(string(m.stderrBuffer))
+	m.mdViewportLines = nil
 }
 
 // --- Content renderers ---
@@ -739,7 +756,7 @@ func (m *model) loadStepOutput() {
 	}
 	step := m.workflow.Steps[m.cursor]
 	if m.currentStepID == step.ID {
-		if liveOut, ok := m.liveOutputs[step.ID]; ok {
+		if liveOut, ok := m.liveOutputs[step.ID]; ok && liveOut != nil {
 			m.stdoutBuffer = liveOut.stdout
 			m.stderrBuffer = liveOut.stderr
 		} else {
@@ -765,27 +782,40 @@ func (m *model) loadStepOutput() {
 }
 
 // renderMarkdown renders markdown content via glamour.
-func (m model) renderMarkdown(content string, width int) (string, error) {
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithWordWrap(width),
-		glamour.WithStandardStyle("dark"),
-	)
-	if err != nil {
-		return "", err
+func (m *model) renderMarkdown(content string, width int) (string, error) {
+	if m.mdRendererCache == nil {
+		m.mdRendererCache = make(map[int]*glamour.TermRenderer)
+	}
+	renderer, ok := m.mdRendererCache[width]
+	if !ok || renderer == nil {
+		var err error
+		renderer, err = glamour.NewTermRenderer(
+			glamour.WithWordWrap(width),
+			glamour.WithStandardStyle("dark"),
+		)
+		if err != nil {
+			return "", err
+		}
+		m.mdRendererCache[width] = renderer
 	}
 	return renderer.Render(content)
 }
 
-// renderViewportContent returns the visible lines of a viewport without
+// renderViewportContent returns the visible lines of the stdout viewport without
 // applying the viewport's MaxWidth truncation.
 //
 // We bypass viewport.View() for markdown because lipgloss's MaxWidth
 // truncation is not ANSI-aware; glamour already word-wraps at the correct
 // width, so we manually slice the visible lines to avoid stripping ANSI codes.
-func (m model) renderViewportContent(vp viewport.Model) string {
-	lines := strings.Split(vp.GetContent(), "\n")
-	yOffset := vp.YOffset()
-	height := vp.Height()
+func (m model) renderViewportContent() string {
+	var lines []string
+	if m.mdViewportLines != nil {
+		lines = m.mdViewportLines
+	} else {
+		lines = strings.Split(m.stdoutViewport.GetContent(), "\n")
+	}
+	yOffset := m.stdoutViewport.YOffset()
+	height := m.stdoutViewport.Height()
 	top := max(0, yOffset)
 	bottom := min(len(lines), top+height)
 	if top >= len(lines) {
@@ -910,7 +940,7 @@ func (m *model) runCurrentStep() tea.Cmd {
 	m.stderrBuffer = nil
 	m.stdoutViewport.SetContent("")
 	m.stderrViewport.SetContent("")
-	m.liveOutputs[step.ID] = liveOutput{}
+	m.liveOutputs[step.ID] = &liveOutput{}
 	m.currentStepID = step.ID
 
 	params := buildParams(step, m)
