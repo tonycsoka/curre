@@ -150,10 +150,10 @@ func (wf *Workflow) FlatSteps() []FlatStep {
 
 // Workflow is the top-level structure loaded from JSON.
 type Workflow struct {
-	Name        string                `json:"name"`
-	Description string                `json:"description,omitempty"`
-	Parameters  map[string]Parameter  `json:"parameters,omitempty"`
-	Steps       []StepOrGroup         `json:"steps"`
+	Name        string               `json:"name"`
+	Description string               `json:"description,omitempty"`
+	Parameters  map[string]Parameter `json:"parameters,omitempty"`
+	Steps       []StepOrGroup        `json:"steps"`
 }
 
 // LoadWorkflow reads and validates a workflow JSON file.

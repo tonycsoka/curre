@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os/exec"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -46,6 +47,7 @@ func newStepRunner(step Step, workflowDir string, scriptPath string, params []st
 
 	cmd := exec.CommandContext(ctx, scriptPath, params...)
 	cmd.Dir = workflowDir
+	cmd.WaitDelay = 5 * time.Second
 
 	go func() {
 		defer cancel()
@@ -75,11 +77,14 @@ func newStepRunner(step Step, workflowDir string, scriptPath string, params []st
 			scanner := bufio.NewScanner(stdout)
 			buf := make([]byte, 1024*1024)
 			scanner.Buffer(buf, cap(buf))
+			stopped := false
 			for scanner.Scan() {
-				select {
-				case stdoutChan <- scanner.Text() + "\n":
-				case <-done:
-					return
+				if !stopped {
+					select {
+					case stdoutChan <- scanner.Text() + "\n":
+					case <-done:
+						stopped = true
+					}
 				}
 			}
 			if err := scanner.Err(); err != nil {
@@ -97,11 +102,14 @@ func newStepRunner(step Step, workflowDir string, scriptPath string, params []st
 			scanner := bufio.NewScanner(stderr)
 			buf := make([]byte, 1024*1024)
 			scanner.Buffer(buf, cap(buf))
+			stopped := false
 			for scanner.Scan() {
-				select {
-				case stderrChan <- scanner.Text() + "\n":
-				case <-done:
-					return
+				if !stopped {
+					select {
+					case stderrChan <- scanner.Text() + "\n":
+					case <-done:
+						stopped = true
+					}
 				}
 			}
 			if err := scanner.Err(); err != nil {
