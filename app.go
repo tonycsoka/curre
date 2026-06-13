@@ -498,7 +498,8 @@ func (m model) renderStepListContent(w int) string {
 		}
 
 		icon := m.statusIcon(state.Status)
-		line := style.Copy().MaxWidth(w).Render(fmt.Sprintf("%s%s %s — %s", prefix, icon, step.Name, statusText))
+		runIcon := m.runTypeIcon(step)
+		line := style.Copy().MaxWidth(w).Render(fmt.Sprintf("%s%s %s %s — %s", prefix, icon, runIcon, step.Name, statusText))
 		lines = append(lines, line)
 	}
 
@@ -542,6 +543,13 @@ func (m model) statusIcon(status StepStatus) string {
 		return "⊘"
 	}
 	return "?"
+}
+
+func (m model) runTypeIcon(step Step) string {
+	if step.RunOncePerSession {
+		return "⊘"
+	}
+	return "↻"
 }
 
 func (m model) renderParamContent(w int) string {
