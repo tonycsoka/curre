@@ -6,10 +6,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var (
@@ -109,6 +110,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case shellDoneMsg:
+		// Drain any remaining stdout/stderr before saving
+		if m.runner != nil {
+			stdoutLines, stderrLines := m.runner.Drain()
+			for _, line := range stdoutLines {
+				m.stdoutBuffer = append(m.stdoutBuffer, line...)
+			}
+			for _, line := range stderrLines {
+				m.stderrBuffer = append(m.stderrBuffer, line...)
+			}
+		}
 		m.session.UpdateStepState(msg.stepID, StepState{
 			Status:   msg.status,
 			ExitCode: msg.exitCode,
@@ -117,6 +128,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		m.runner = nil
 		m.currentStepID = ""
+		m.refreshStdoutContent()
+		// For markdown output, scroll to top so the user sees the beginning
+		if m.workflow != nil && m.cursor < len(m.workflow.Steps) && m.workflow.Steps[m.cursor].OutputType == OutputMarkdown {
+			m.stdoutViewport.SetYOffset(0)
+		}
 		return m, m.autoSave()
 
 	case errMsg:
@@ -235,23 +251,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showSessionList = true
 			m.sessionCursor = 0
 			m.sessionList, _ = FindSessionsForWorkflow(m.workflow.Name, m.session.Cwd)
+		case "pgup":
+			m.stdoutViewport.PageUp()
+		case "pgdown":
+			m.stdoutViewport.PageDown()
+		case "home":
+			m.stdoutViewport.GotoTop()
+		case "end":
+			m.stdoutViewport.GotoBottom()
+		default:
+			// Pass unhandled keys to the viewport for scrolling
+			var cmd tea.Cmd
+			m.stdoutViewport, cmd = m.stdoutViewport.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			m.stderrViewport, cmd = m.stderrViewport.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 
 	return m, tea.Batch(cmds...)
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
-		return "Loading..."
+		v := tea.NewView("Loading...")
+		v.AltScreen = true
+		return v
 	}
 
 	if m.showSessionList {
-		return m.renderSessionList()
+		v := tea.NewView(m.renderSessionList())
+		v.AltScreen = true
+		return v
 	}
 
 	if m.bypassConfirm {
-		return m.renderBypassModal()
+		v := tea.NewView(m.renderBypassModal())
+		v.AltScreen = true
+		return v
 	}
 
 	paneFrameH := paneStyle.GetHorizontalFrameSize()
@@ -266,13 +307,25 @@ func (m model) View() string {
 
 	rightContentW := max(2, rightW-paneFrameH)
 	paramsContent := m.renderParamContent(rightContentW)
-	stdoutContent := m.stdoutViewport.View()
 	stderrContent := m.stderrViewport.View()
+
+	// For markdown output, bypass the viewport's broken MaxWidth truncation
+	// and the pane's Width wrapping (both are not ANSI-aware in lipgloss).
+	// Glamour already wraps at the correct width, so we render directly.
+	var stdoutContent string
+	var stdout string
+	if m.workflow != nil && m.cursor < len(m.workflow.Steps) && m.workflow.Steps[m.cursor].OutputType == OutputMarkdown {
+		stdoutContent = m.renderViewportContent(m.stdoutViewport)
+		stdout = paneStyle.Render(
+			paneTitleStyle.Render("Stdout") + "\n" + stdoutContent)
+	} else {
+		stdoutContent = m.stdoutViewport.View()
+		stdout = paneStyle.Width(max(2, rightW-paneFrameH)).Render(
+			paneTitleStyle.Render("Stdout") + "\n" + stdoutContent)
+	}
 
 	params := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
 		paneTitleStyle.Render("Parameters") + "\n" + paramsContent)
-	stdout := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
-		paneTitleStyle.Render("Stdout") + "\n" + stdoutContent)
 	stderr := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
 		paneTitleStyle.Render("Stderr") + "\n" + stderrContent)
 
@@ -280,11 +333,33 @@ func (m model) View() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	footer := lipgloss.NewStyle().Height(1).Render(
-		"↑/↓ nav  r run  b skip  n skip  tab params  s sessions  q quit",
+		"↑/↓ nav  r run  b skip  n skip  tab params  s sessions  pgup/pgdn scroll  q quit",
 	)
 
 	all := lipgloss.JoinVertical(lipgloss.Left, body, footer)
-	return all
+	v := tea.NewView(all)
+	v.AltScreen = true
+	return v
+}
+
+// Cursor returns the cursor position for the focused text input.
+func (m model) Cursor() *tea.Cursor {
+	if m.focusedParam >= 0 && m.focusedParam < len(m.paramNames) {
+		name := m.paramNames[m.focusedParam]
+		input := m.paramInputs[name]
+		if input.Focused() {
+			c := input.Cursor()
+			// Find the X position of the input in the right pane
+			leftW := m.leftWidth()
+			// X offset: left pane width + border
+			c.X += leftW + 1
+			// Y offset: parameters pane height + title + border + lines before input
+			paramLines := m.paramLines()
+			c.Y += paramLines + 3 + m.focusedParam*3
+			return c
+		}
+	}
+	return nil
 }
 
 // --- Layout ---
@@ -338,9 +413,35 @@ func (m *model) resizeViewports() {
 		stderrVH = max(3, remaining-stdoutVH)
 	}
 
-	m.stdoutViewport = viewport.New(viewportW, stdoutVH)
-	m.stdoutViewport.SetContent(string(m.stdoutBuffer))
-	m.stderrViewport = viewport.New(viewportW, stderrVH)
+	m.stdoutViewport = viewport.New(viewport.WithWidth(viewportW), viewport.WithHeight(stdoutVH))
+	m.stderrViewport = viewport.New(viewport.WithWidth(viewportW), viewport.WithHeight(stderrVH))
+
+	// If the current step is markdown, re-render with new width
+	m.refreshStdoutContent()
+}
+
+// refreshStdoutContent sets the viewport content, rendering markdown if needed.
+func (m *model) refreshStdoutContent() {
+	paneFrameH := paneStyle.GetHorizontalFrameSize()
+	normalWidth := max(2, m.rightWidth()-paneFrameH)
+	stdoutStr := string(m.stdoutBuffer)
+
+	if m.workflow != nil && m.cursor < len(m.workflow.Steps) && m.currentStepID != m.workflow.Steps[m.cursor].ID {
+		step := m.workflow.Steps[m.cursor]
+		if step.OutputType == OutputMarkdown && stdoutStr != "" {
+			rendered, err := m.renderMarkdown(stdoutStr, normalWidth)
+			if err == nil {
+				stdoutStr = rendered
+			}
+			m.stdoutViewport.SetContent(stdoutStr)
+			m.stderrViewport.SetContent(string(m.stderrBuffer))
+			return
+		}
+	}
+
+	// Normal width for non-markdown content
+	m.stdoutViewport.SetWidth(normalWidth)
+	m.stdoutViewport.SetContent(stdoutStr)
 	m.stderrViewport.SetContent(string(m.stderrBuffer))
 }
 
@@ -542,8 +643,37 @@ func (m *model) loadStepOutput() {
 		m.stdoutBuffer = []byte(out)
 		m.stderrBuffer = []byte(err)
 	}
-	m.stdoutViewport.SetContent(string(m.stdoutBuffer))
-	m.stderrViewport.SetContent(string(m.stderrBuffer))
+	m.refreshStdoutContent()
+	// For markdown, scroll to top so the beginning of the document is visible
+	if step.OutputType == OutputMarkdown {
+		m.stdoutViewport.SetYOffset(0)
+	}
+}
+
+// renderMarkdown renders markdown content via glamour.
+func (m model) renderMarkdown(content string, width int) (string, error) {
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithWordWrap(width),
+		glamour.WithStandardStyle("dark"),
+	)
+	if err != nil {
+		return "", err
+	}
+	return renderer.Render(content)
+}
+
+// renderViewportContent returns the visible lines of a viewport without
+// applying the viewport's MaxWidth truncation (which is not ANSI-aware).
+func (m model) renderViewportContent(vp viewport.Model) string {
+	lines := strings.Split(vp.GetContent(), "\n")
+	yOffset := vp.YOffset()
+	height := vp.Height()
+	top := max(0, yOffset)
+	bottom := min(len(lines), top+height)
+	if top >= len(lines) {
+		return ""
+	}
+	return strings.Join(lines[top:bottom], "\n")
 }
 
 func (m model) canRun() bool {
@@ -580,7 +710,7 @@ func (m *model) updateParamInputs() {
 		input.Prompt = ""
 		input.Placeholder = param.Default
 		input.SetValue(val)
-		input.Width = max(2, m.rightWidth()-paneFrameH)
+		input.SetWidth(max(2, m.rightWidth()-paneFrameH))
 		m.paramInputs[name] = input
 	}
 	m.updateParamInputWidths()
@@ -590,7 +720,7 @@ func (m *model) updateParamInputWidths() {
 	paneFrameH := paneStyle.GetHorizontalFrameSize()
 	w := max(2, m.rightWidth()-paneFrameH)
 	for name, input := range m.paramInputs {
-		input.Width = w
+		input.SetWidth(w)
 		m.paramInputs[name] = input
 	}
 }
@@ -613,7 +743,7 @@ func (m *model) blurAllExcept(idx int) tea.Cmd {
 		}
 		m.paramInputs[name] = input
 	}
-	return textinput.Blink
+	return func() tea.Msg { return textinput.Blink() }
 }
 
 func (m *model) autoSave() tea.Cmd {

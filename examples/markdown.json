@@ -1,0 +1,14 @@
+{
+  "name": "markdown-demo",
+  "description": "Demonstrate markdown output rendering",
+  "parameters": {},
+  "steps": [
+    {
+      "id": "readme",
+      "name": "Generate README",
+      "script": "scripts/markdown.sh",
+      "output_type": "markdown",
+      "description": "Generate a markdown README for the project"
+    }
+  ]
+}

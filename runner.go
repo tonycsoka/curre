@@ -3,8 +3,9 @@ package main
 import (
 	"bufio"
 	"os/exec"
+	"sync"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type shellStdoutMsg struct {
@@ -31,8 +32,8 @@ type stepRunner struct {
 }
 
 func newStepRunner(step Step, workflowDir string, params []string) *stepRunner {
-	stdoutChan := make(chan string)
-	stderrChan := make(chan string)
+	stdoutChan := make(chan string, 100)
+	stderrChan := make(chan string, 100)
 	resultChan := make(chan shellDoneMsg)
 
 	go func() {
@@ -56,7 +57,11 @@ func newStepRunner(step Step, workflowDir string, params []string) *stepRunner {
 			return
 		}
 
+		var wg sync.WaitGroup
+		wg.Add(2)
+
 		go func() {
+			defer wg.Done()
 			scanner := bufio.NewScanner(stdout)
 			for scanner.Scan() {
 				stdoutChan <- scanner.Text() + "\n"
@@ -64,6 +69,7 @@ func newStepRunner(step Step, workflowDir string, params []string) *stepRunner {
 		}()
 
 		go func() {
+			defer wg.Done()
 			scanner := bufio.NewScanner(stderr)
 			for scanner.Scan() {
 				stderrChan <- scanner.Text() + "\n"
@@ -75,8 +81,10 @@ func newStepRunner(step Step, workflowDir string, params []string) *stepRunner {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				exitCode = exitErr.ExitCode()
 			}
+			wg.Wait()
 			resultChan <- shellDoneMsg{stepID: step.ID, exitCode: exitCode, status: StatusFailed}
 		} else {
+			wg.Wait()
 			resultChan <- shellDoneMsg{stepID: step.ID, exitCode: 0, status: StatusSuccess}
 		}
 	}()
@@ -101,6 +109,30 @@ func (r *stepRunner) NextCmd() tea.Cmd {
 			return shellStderrMsg{line: line, stepID: r.stepID}
 		case result := <-r.resultChan:
 			return result
+		}
+	}
+}
+
+// Drain returns any remaining output in the buffers without blocking.
+func (r *stepRunner) Drain() (stdout, stderr []string) {
+	if r == nil {
+		return nil, nil
+	}
+	for {
+		select {
+		case line := <-r.stdoutChan:
+			stdout = append(stdout, line)
+		default:
+			goto drainStderr
+		}
+	}
+drainStderr:
+	for {
+		select {
+		case line := <-r.stderrChan:
+			stderr = append(stderr, line)
+		default:
+			return stdout, stderr
 		}
 	}
 }

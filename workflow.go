@@ -23,14 +23,23 @@ type Parameter struct {
 	Description string        `json:"description,omitempty"`
 }
 
+// OutputType describes how a step's output should be rendered.
+type OutputType string
+
+const (
+	OutputText    OutputType = "text"
+	OutputMarkdown OutputType = "markdown"
+)
+
 // Step defines a single step in the workflow.
 type Step struct {
-	ID                 string   `json:"id"`
-	Name               string   `json:"name"`
-	Script             string   `json:"script"`
-	Params             []string `json:"params,omitempty"`
-	RunOncePerSession  bool     `json:"run_once_per_session,omitempty"`
-	Description        string   `json:"description,omitempty"`
+	ID                 string     `json:"id"`
+	Name               string     `json:"name"`
+	Script             string     `json:"script"`
+	Params             []string   `json:"params,omitempty"`
+	RunOncePerSession  bool       `json:"run_once_per_session,omitempty"`
+	Description        string     `json:"description,omitempty"`
+	OutputType         OutputType `json:"output_type,omitempty"`
 }
 
 // Workflow is the top-level structure loaded from JSON.

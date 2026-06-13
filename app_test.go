@@ -124,23 +124,23 @@ func TestViewRendersSteps(t *testing.T) {
 	m.resizeViewports()
 
 	view := m.View()
-	if !strings.Contains(view, "Build") {
-		t.Errorf("View should contain 'Build', got:\n%s", view)
+	if !strings.Contains(view.Content, "Build") {
+		t.Errorf("View should contain 'Build', got:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "Deploy") {
-		t.Errorf("View should contain 'Deploy', got:\n%s", view)
+	if !strings.Contains(view.Content, "Deploy") {
+		t.Errorf("View should contain 'Deploy', got:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "env") {
-		t.Errorf("View should contain 'env', got:\n%s", view)
+	if !strings.Contains(view.Content, "env") {
+		t.Errorf("View should contain 'env', got:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "version") {
-		t.Errorf("View should contain 'version', got:\n%s", view)
+	if !strings.Contains(view.Content, "version") {
+		t.Errorf("View should contain 'version', got:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "Steps") {
-		t.Errorf("View should contain 'Steps' header, got:\n%s", view)
+	if !strings.Contains(view.Content, "Steps") {
+		t.Errorf("View should contain 'Steps' header, got:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "pending") {
-		t.Errorf("View should contain 'pending' status, got:\n%s", view)
+	if !strings.Contains(view.Content, "pending") {
+		t.Errorf("View should contain 'pending' status, got:\n%s", view.Content)
 	}
 }
 
@@ -157,11 +157,11 @@ func TestViewRendersStepsSmallTerminal(t *testing.T) {
 	m.resizeViewports()
 
 	view := m.View()
-	if !strings.Contains(view, "Build") {
-		t.Errorf("View should contain 'Build' in small terminal, got:\n%s", view)
+	if !strings.Contains(view.Content, "Build") {
+		t.Errorf("View should contain 'Build' in small terminal, got:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "Deploy") {
-		t.Errorf("View should contain 'Deploy' in small terminal, got:\n%s", view)
+	if !strings.Contains(view.Content, "Deploy") {
+		t.Errorf("View should contain 'Deploy' in small terminal, got:\n%s", view.Content)
 	}
 }
 
@@ -178,8 +178,8 @@ func TestViewSmallTerminal(t *testing.T) {
 	m.resizeViewports()
 
 	view := m.View()
-	if !strings.Contains(view, "Build") {
-		t.Errorf("Expected 'Build' in small terminal view, got:\n%s", view)
+	if !strings.Contains(view.Content, "Build") {
+		t.Errorf("Expected 'Build' in small terminal view, got:\n%s", view.Content)
 	}
 }
 
@@ -196,19 +196,19 @@ func TestViewDebug(t *testing.T) {
 	m.resizeViewports()
 
 	view := m.View()
-	if len(view) == 0 {
+	if len(view.Content) == 0 {
 		t.Fatal("View is empty")
 	}
-	if !strings.Contains(view, "Build") || !strings.Contains(view, "Deploy") {
-		t.Fatalf("View missing steps:\n%s", view)
+	if !strings.Contains(view.Content, "Build") || !strings.Contains(view.Content, "Deploy") {
+		t.Fatalf("View missing steps:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "Parameters") {
-		t.Fatalf("View missing 'Parameters' label:\n%s", view)
+	if !strings.Contains(view.Content, "Parameters") {
+		t.Fatalf("View missing 'Parameters' label:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "Stdout") {
-		t.Fatalf("View missing 'Stdout' label:\n%s", view)
+	if !strings.Contains(view.Content, "Stdout") {
+		t.Fatalf("View missing 'Stdout' label:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "Stderr") {
-		t.Fatalf("View missing 'Stderr' label:\n%s", view)
+	if !strings.Contains(view.Content, "Stderr") {
+		t.Fatalf("View missing 'Stderr' label:\n%s", view.Content)
 	}
 }
