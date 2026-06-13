@@ -58,24 +58,24 @@ var (
 	}
 
 	tabInactive = lipgloss.NewStyle().
-				Border(tabBorder, true).
-				BorderForeground(lipgloss.Color("244")).
-				Foreground(lipgloss.Color("244")).
-				Padding(0, 1)
-
-	tabActive = lipgloss.NewStyle().
-				Border(tabActiveBorder, true).
-				BorderForeground(lipgloss.Color("250")).
-				Bold(true).
-				Foreground(lipgloss.Color("250")).
-				Padding(0, 1)
-
-	tabGap = lipgloss.NewStyle().
 			Border(tabBorder, true).
 			BorderForeground(lipgloss.Color("244")).
-			BorderTop(false).
-			BorderLeft(false).
-			BorderRight(false)
+			Foreground(lipgloss.Color("244")).
+			Padding(0, 1)
+
+	tabActive = lipgloss.NewStyle().
+			Border(tabActiveBorder, true).
+			BorderForeground(lipgloss.Color("250")).
+			Bold(true).
+			Foreground(lipgloss.Color("250")).
+			Padding(0, 1)
+
+	tabGap = lipgloss.NewStyle().
+		Border(tabBorder, true).
+		BorderForeground(lipgloss.Color("244")).
+		BorderTop(false).
+		BorderLeft(false).
+		BorderRight(false)
 )
 
 // Layout constants for the TUI.
@@ -132,8 +132,8 @@ type model struct {
 
 	runners map[string]*stepRunner
 
-	stdoutBuffer  []byte
-	stderrBuffer  []byte
+	stdoutBuffer []byte
+	stderrBuffer []byte
 
 	liveOutputs map[string]*liveOutput // per-step buffers for running steps
 
@@ -463,6 +463,9 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (model, tea.Cmd) {
 			if runner != nil {
 				runner.Stop()
 			}
+		}
+		if m.session != nil {
+			_ = SaveSession(m.session)
 		}
 		return m, tea.Quit
 	case "up", "k":
@@ -1127,12 +1130,6 @@ func (m *model) loadStepOutput() {
 		state := m.session.StepStates[step.ID]
 		m.stdoutBuffer = []byte(state.Stdout)
 		m.stderrBuffer = []byte(state.Stderr)
-		// Backward compat: if new fields are empty, try old Output field
-		if m.stdoutBuffer == nil && m.stderrBuffer == nil && state.Output != "" {
-			out, stderr := state.GetOutput()
-			m.stdoutBuffer = []byte(out)
-			m.stderrBuffer = []byte(stderr)
-		}
 	}
 	m.refreshStdoutContent()
 	// For markdown, scroll to top so the beginning of the document is visible

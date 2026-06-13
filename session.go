@@ -32,30 +32,8 @@ type StepState struct {
 	Status   StepStatus `json:"status"`
 	ExitCode int        `json:"exit_code,omitempty"`
 	RunAt    string     `json:"run_at,omitempty"`
-	// Output is deprecated. Use Stdout and Stderr instead.
-	// Kept for backward compatibility with sessions created before the split.
-	//
-	// Deprecated: Use Stdout and Stderr instead.
-	Output string `json:"output,omitempty"`
-	Stdout string `json:"stdout,omitempty"`
-	Stderr string `json:"stderr,omitempty"`
-}
-
-// GetOutput returns the stdout and stderr for a step.
-// For backward compatibility, it falls back to parsing the old combined Output field.
-func (s StepState) GetOutput() (stdout, stderr string) {
-	if s.Stdout != "" || s.Stderr != "" {
-		return s.Stdout, s.Stderr
-	}
-	if s.Output == "" {
-		return "", ""
-	}
-	// Backward compat: parse old combined format
-	parts := strings.SplitN(s.Output, "\n--- stderr ---\n", 2)
-	if len(parts) == 2 {
-		return parts[0], parts[1]
-	}
-	return s.Output, ""
+	Stdout   string     `json:"stdout,omitempty"`
+	Stderr   string     `json:"stderr,omitempty"`
 }
 
 // Session is the persisted state for a workflow run in a specific directory.
