@@ -389,8 +389,10 @@ func (m model) View() tea.View {
 	stepsContentH := max(stepsPaneMinHeight, m.height-titleBarHeight-footerHeight-infoPaneHeight-2*leftPaneStyle.GetVerticalFrameSize())
 
 	leftContentRaw := m.renderStepListContent(leftContentW)
-	stepsPane := leftPaneStyle.Width(leftContentW).Height(stepsContentH).Render(leftContentRaw)
-	infoPane := leftPaneStyle.Width(leftContentW).Height(infoPaneHeight).Render(m.renderStepInfo(leftContentW))
+
+	stepsPane := leftPaneStyle.Width(leftW).Height(stepsContentH).Render(leftContentRaw)
+	infoPane := leftPaneStyle.Width(leftW).Height(infoPaneHeight).Render(m.renderStepInfo(leftContentW))
+
 	left := lipgloss.JoinVertical(lipgloss.Left, stepsPane, infoPane)
 
 	rightContentW := max(2, rightW-paneFrameH)
@@ -407,11 +409,11 @@ func (m model) View() tea.View {
 		stdoutContent = m.stdoutViewport.View()
 	}
 
-	params := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
+	params := paneStyle.Width(rightW).Render(
 		paneTitleStyle.Render("Parameters") + "\n" + paramsContent)
-	stdout := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
+	stdout := paneStyle.Width(rightW).Render(
 		paneTitleStyle.Render("Stdout") + "\n" + stdoutContent)
-	stderr := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
+	stderr := paneStyle.Width(rightW).Render(
 		paneTitleStyle.Render("Stderr") + "\n" + stderrContent)
 
 	right := lipgloss.JoinVertical(lipgloss.Left, params, stdout, stderr)
