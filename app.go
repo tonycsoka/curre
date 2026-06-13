@@ -1127,12 +1127,6 @@ func (m *model) loadStepOutput() {
 		state := m.session.StepStates[step.ID]
 		m.stdoutBuffer = []byte(state.Stdout)
 		m.stderrBuffer = []byte(state.Stderr)
-		// Backward compat: if new fields are empty, try old Output field
-		if m.stdoutBuffer == nil && m.stderrBuffer == nil && state.Output != "" {
-			out, stderr := state.GetOutput()
-			m.stdoutBuffer = []byte(out)
-			m.stderrBuffer = []byte(stderr)
-		}
 	}
 	m.refreshStdoutContent()
 	// For markdown, scroll to top so the beginning of the document is visible
