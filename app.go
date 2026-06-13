@@ -43,10 +43,10 @@ const (
 	infoPaneHeight     = 2
 	paramBlockHeight   = 3 // label + input + spacing
 	modalMaxWidth      = 60
-	modalSkipWidth     = 50
-	stepsPaneOverhead  = 10 // titleBar + footer + borders + padding rough estimate
-	cursorBgColor      = "236"
-	lastRunFgColor     = "244"
+
+	stepsPaneOverhead = 10 // titleBar + footer + borders + padding rough estimate
+	cursorBgColor     = "236"
+	lastRunFgColor    = "244"
 )
 
 // liveOutput holds the raw stdout/stderr for a step that is currently running.
@@ -682,7 +682,7 @@ func (m model) renderSessionList() string {
 	lines = append(lines, "", "enter pick  n new  q/esc close")
 
 	modalW := min(modalMaxWidth, m.width-4)
-	modalH := min(m.height-4, len(lines)+2)
+	modalH := min(m.height-4, len(lines)+leftPaneStyle.GetVerticalFrameSize())
 	contentW := max(2, modalW-leftPaneStyle.GetHorizontalFrameSize())
 	contentH := max(1, modalH-leftPaneStyle.GetVerticalFrameSize())
 	content := lipgloss.NewStyle().MaxWidth(contentW).MaxHeight(contentH).Render(strings.Join(lines, "\n"))
@@ -692,9 +692,16 @@ func (m model) renderSessionList() string {
 
 func (m model) renderSkipConfirm() string {
 	step := m.workflow.Steps[m.cursor]
-	msg := fmt.Sprintf("Skip step %q?\n\n(y/n)", step.Name)
-	modalStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1).Width(modalSkipWidth).Align(lipgloss.Center)
-	overlay := modalStyle.Render(msg)
+	var lines []string
+	lines = append(lines, paneTitleStyle.Render("Skip Step"), "")
+	lines = append(lines, fmt.Sprintf("Skip %q? (y/n)", step.Name))
+
+	modalW := min(modalMaxWidth, m.width-4)
+	modalH := min(m.height-4, len(lines)+leftPaneStyle.GetVerticalFrameSize())
+	contentW := max(2, modalW-leftPaneStyle.GetHorizontalFrameSize())
+	contentH := max(1, modalH-leftPaneStyle.GetVerticalFrameSize())
+	content := lipgloss.NewStyle().MaxWidth(contentW).MaxHeight(contentH).Render(strings.Join(lines, "\n"))
+	overlay := leftPaneStyle.Width(contentW).Height(contentH).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
 }
 
@@ -901,18 +908,4 @@ func (m *model) runCurrentStep() tea.Cmd {
 	params := buildParams(step, m)
 	m.runner = newStepRunner(step, m.workflowDir, params)
 	return tea.Batch(m.autoSave(), m.runner.NextCmd())
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
