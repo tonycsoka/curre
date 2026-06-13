@@ -429,11 +429,6 @@ func (m model) rightWidth() int {
 	return max(m.width-m.leftWidth(), rightPaneMinWidth)
 }
 
-func (m model) leftContentW() int {
-	leftFrameH := leftPaneStyle.GetHorizontalFrameSize()
-	return max(2, m.leftWidth()-leftFrameH)
-}
-
 func (m model) paramLines() int {
 	if len(m.paramNames) == 0 {
 		return 1

@@ -86,11 +86,6 @@ func TestStepSequencing(t *testing.T) {
 		t.Error("Step 1 should be runnable after step 0 succeeds")
 	}
 
-	sess.UpdateStepState(wf.Steps[1].ID, StepState{Status: StatusFailed})
-	if !sess.IsStepBypassable(wf, 1) {
-		t.Error("Step 1 should be bypassable after failing")
-	}
-
 	sess.UpdateStepState(wf.Steps[1].ID, StepState{Status: StatusSkipped})
 }
 

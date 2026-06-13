@@ -201,20 +201,6 @@ func FindSessionsForWorkflow(workflowName, cwd string) ([]*Session, error) {
 	return sessions, nil
 }
 
-// GetLatestSession returns the most recent session for a workflow and directory.
-func GetLatestSession(workflowName, cwd string) (*Session, error) {
-	sessions, err := FindSessionsForWorkflow(workflowName, cwd)
-	if err != nil {
-		return nil, err
-	}
-	if len(sessions) == 0 {
-		return nil, nil
-	}
-	return sessions[0], nil
-}
-
-
-
 // OverallStatus returns the overall status of the session.
 func (sess *Session) OverallStatus() string {
 	total := len(sess.StepStates)
@@ -316,12 +302,3 @@ func (sess *Session) IsStepRunnable(wf *Workflow, idx int) bool {
 	return prevState.Status == StatusSuccess || prevState.Status == StatusSkipped
 }
 
-// IsStepBypassable checks whether a failed step can be skipped.
-func (sess *Session) IsStepBypassable(wf *Workflow, idx int) bool {
-	if idx < 0 || idx >= len(wf.Steps) {
-		return false
-	}
-	step := wf.Steps[idx]
-	state := sess.StepStates[step.ID]
-	return state.Status == StatusFailed
-}

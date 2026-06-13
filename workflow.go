@@ -12,8 +12,6 @@ type ParameterType string
 
 const (
 	ParamString ParameterType = "string"
-	ParamInt    ParameterType = "int"
-	ParamBool   ParameterType = "bool"
 )
 
 // Parameter defines a user-editable parameter in the workflow.
