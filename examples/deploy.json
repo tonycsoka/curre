@@ -1,0 +1,34 @@
+{
+  "name": "deploy",
+  "description": "Deploy the application",
+  "parameters": {
+    "env": {
+      "type": "string",
+      "default": "dev",
+      "description": "Target environment"
+    },
+    "version": {
+      "type": "string",
+      "default": "1.0.0",
+      "description": "App version"
+    }
+  },
+  "steps": [
+    {
+      "id": "build",
+      "name": "Build",
+      "script": "scripts/build.sh",
+      "params": ["env", "version"],
+      "run_once_per_session": false,
+      "description": "Build the application"
+    },
+    {
+      "id": "deploy",
+      "name": "Deploy",
+      "script": "scripts/deploy.sh",
+      "params": ["env", "version"],
+      "run_once_per_session": false,
+      "description": "Deploy the application"
+    }
+  ]
+}

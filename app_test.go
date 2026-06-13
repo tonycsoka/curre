@@ -1,0 +1,214 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLoadWorkflow(t *testing.T) {
+	wf, err := LoadWorkflow("examples/deploy.json")
+	if err != nil {
+		t.Fatalf("Failed to load workflow: %v", err)
+	}
+	if wf.Name != "deploy" {
+		t.Errorf("Expected workflow name 'deploy', got %q", wf.Name)
+	}
+	if len(wf.Steps) != 2 {
+		t.Errorf("Expected 2 steps, got %d", len(wf.Steps))
+	}
+	if len(wf.Parameters) != 2 {
+		t.Errorf("Expected 2 parameters, got %d", len(wf.Parameters))
+	}
+}
+
+func TestSessionLoadSave(t *testing.T) {
+	wf, err := LoadWorkflow("examples/deploy.json")
+	if err != nil {
+		t.Fatalf("Failed to load workflow: %v", err)
+	}
+
+	cwd, _ := os.Getwd()
+	sess := NewSession(wf, cwd)
+	sess.SetParameterValue("env", "staging")
+	sess.SetParameterValue("version", "2.0.0")
+
+	if err := SaveSession(sess); err != nil {
+		t.Fatalf("Failed to save session: %v", err)
+	}
+
+	loaded, err := LoadSession(wf.Name, cwd)
+	if err != nil {
+		t.Fatalf("Failed to load session: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("Expected session to be loaded, got nil")
+	}
+	if loaded.ParameterValues["env"] != "staging" {
+		t.Errorf("Expected env=staging, got %q", loaded.ParameterValues["env"])
+	}
+	if loaded.ParameterValues["version"] != "2.0.0" {
+		t.Errorf("Expected version=2.0.0, got %q", loaded.ParameterValues["version"])
+	}
+
+	os.Remove(SessionPath(wf.Name, cwd))
+}
+
+func TestResolveScriptPath(t *testing.T) {
+	abs := ResolveScriptPath("/home/user", "/usr/bin/script.sh")
+	if abs != "/usr/bin/script.sh" {
+		t.Errorf("Expected absolute path preserved, got %q", abs)
+	}
+
+	rel := ResolveScriptPath("/home/user", "scripts/build.sh")
+	expected := filepath.Join("/home/user", "scripts/build.sh")
+	if rel != expected {
+		t.Errorf("Expected %q, got %q", expected, rel)
+	}
+}
+
+func TestStepSequencing(t *testing.T) {
+	wf, _ := LoadWorkflow("examples/deploy.json")
+	cwd, _ := os.Getwd()
+	sess := NewSession(wf, cwd)
+
+	if !sess.IsStepRunnable(wf, 0) {
+		t.Error("Step 0 should be runnable")
+	}
+	if sess.IsStepRunnable(wf, 1) {
+		t.Error("Step 1 should not be runnable yet")
+	}
+
+	sess.UpdateStepState(wf.Steps[0].ID, StepState{Status: StatusSuccess})
+
+	if !sess.IsStepRunnable(wf, 1) {
+		t.Error("Step 1 should be runnable after step 0 succeeds")
+	}
+
+	sess.UpdateStepState(wf.Steps[1].ID, StepState{Status: StatusFailed})
+	if !sess.IsStepBypassable(wf, 1) {
+		t.Error("Step 1 should be bypassable after failing")
+	}
+
+	sess.UpdateStepState(wf.Steps[1].ID, StepState{Status: StatusSkipped})
+}
+
+func TestRunOncePerSession(t *testing.T) {
+	wf, _ := LoadWorkflow("examples/deploy.json")
+	wf.Steps[0].RunOncePerSession = true
+	cwd, _ := os.Getwd()
+	sess := NewSession(wf, cwd)
+
+	if !sess.IsStepRunnable(wf, 0) {
+		t.Error("Step 0 should be runnable initially")
+	}
+
+	sess.UpdateStepState(wf.Steps[0].ID, StepState{Status: StatusSuccess})
+
+	if sess.IsStepRunnable(wf, 0) {
+		t.Error("Step 0 should not be runnable again after success with run_once_per_session")
+	}
+}
+
+func TestViewRendersSteps(t *testing.T) {
+	wf, err := LoadWorkflow("examples/deploy.json")
+	if err != nil {
+		t.Fatalf("Failed to load workflow: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	sess := NewSession(wf, cwd)
+	m := initialModel(wf, sess, "examples")
+	m.width = 100
+	m.height = 30
+	m.resizeViewports()
+
+	view := m.View()
+	if !strings.Contains(view, "Build") {
+		t.Errorf("View should contain 'Build', got:\n%s", view)
+	}
+	if !strings.Contains(view, "Deploy") {
+		t.Errorf("View should contain 'Deploy', got:\n%s", view)
+	}
+	if !strings.Contains(view, "env") {
+		t.Errorf("View should contain 'env', got:\n%s", view)
+	}
+	if !strings.Contains(view, "version") {
+		t.Errorf("View should contain 'version', got:\n%s", view)
+	}
+	if !strings.Contains(view, "Steps") {
+		t.Errorf("View should contain 'Steps' header, got:\n%s", view)
+	}
+	if !strings.Contains(view, "pending") {
+		t.Errorf("View should contain 'pending' status, got:\n%s", view)
+	}
+}
+
+func TestViewRendersStepsSmallTerminal(t *testing.T) {
+	wf, err := LoadWorkflow("examples/deploy.json")
+	if err != nil {
+		t.Fatalf("Failed to load workflow: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	sess := NewSession(wf, cwd)
+	m := initialModel(wf, sess, "examples")
+	m.width = 40
+	m.height = 21 // minimum for 2 params with JoinVertical separators
+	m.resizeViewports()
+
+	view := m.View()
+	if !strings.Contains(view, "Build") {
+		t.Errorf("View should contain 'Build' in small terminal, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Deploy") {
+		t.Errorf("View should contain 'Deploy' in small terminal, got:\n%s", view)
+	}
+}
+
+func TestViewSmallTerminal(t *testing.T) {
+	wf, err := LoadWorkflow("examples/deploy.json")
+	if err != nil {
+		t.Fatalf("Failed to load workflow: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	sess := NewSession(wf, cwd)
+	m := initialModel(wf, sess, "examples")
+	m.width = 40
+	m.height = 10
+	m.resizeViewports()
+
+	view := m.View()
+	if !strings.Contains(view, "Terminal too small") {
+		t.Errorf("Expected 'Terminal too small' message for 10-line terminal, got:\n%s", view)
+	}
+}
+
+func TestViewDebug(t *testing.T) {
+	wf, err := LoadWorkflow("examples/deploy.json")
+	if err != nil {
+		t.Fatalf("Failed to load workflow: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	sess := NewSession(wf, cwd)
+	m := initialModel(wf, sess, "examples")
+	m.width = 100
+	m.height = 30
+	m.resizeViewports()
+
+	view := m.View()
+	if len(view) == 0 {
+		t.Fatal("View is empty")
+	}
+	if !strings.Contains(view, "Build") || !strings.Contains(view, "Deploy") {
+		t.Fatalf("View missing steps:\n%s", view)
+	}
+	if !strings.Contains(view, "Parameters") {
+		t.Fatalf("View missing 'Parameters' label:\n%s", view)
+	}
+	if !strings.Contains(view, "Stdout") {
+		t.Fatalf("View missing 'Stdout' label:\n%s", view)
+	}
+	if !strings.Contains(view, "Stderr") {
+		t.Fatalf("View missing 'Stderr' label:\n%s", view)
+	}
+}
