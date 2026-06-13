@@ -31,6 +31,8 @@ var (
 	paramUsedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
 	paramUnusedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	modalStyle       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1).Width(50).Align(lipgloss.Center)
+	titleStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39")).Background(lipgloss.Color("235")).Padding(0, 1)
+	sessionStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("250")).Background(lipgloss.Color("235")).Padding(0, 1)
 )
 
 type model struct {
@@ -303,7 +305,7 @@ func (m model) View() tea.View {
 	leftContentRaw := m.renderStepListContent(m.leftContentW())
 	leftContentH := max(1, m.height-1-leftPaneStyle.GetVerticalFrameSize())
 	leftContent := lipgloss.NewStyle().MaxHeight(leftContentH).Render(leftContentRaw)
-	left := leftPaneStyle.Width(max(2, leftW-leftPaneStyle.GetHorizontalFrameSize())).Height(max(1, m.height-1-leftPaneStyle.GetVerticalFrameSize())).Render(leftContent)
+	left := leftPaneStyle.Width(max(2, leftW-leftPaneStyle.GetHorizontalFrameSize())).Height(max(1, m.height-2-leftPaneStyle.GetVerticalFrameSize())).Render(leftContent)
 
 	rightContentW := max(2, rightW-paneFrameH)
 	paramsContent := m.renderParamContent(rightContentW)
@@ -331,12 +333,15 @@ func (m model) View() tea.View {
 
 	right := lipgloss.JoinVertical(lipgloss.Left, params, stdout, stderr)
 
+	// Render title bar
+	titleBar := m.renderTitle()
+
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	footer := lipgloss.NewStyle().Height(1).Render(
 		"↑/↓ nav  r run  b skip  n skip  tab params  s sessions  pgup/pgdn scroll  q quit",
 	)
 
-	all := lipgloss.JoinVertical(lipgloss.Left, body, footer)
+	all := lipgloss.JoinVertical(lipgloss.Left, titleBar, body, footer)
 	v := tea.NewView(all)
 	v.AltScreen = true
 	return v
@@ -399,10 +404,10 @@ func (m *model) resizeViewports() {
 		paramLines = 1
 	}
 	paramPaneContent := paramLines + 1 // +1 for title line
-	// Overhead: 3 pane borders + 2 title lines for stdout/stderr
+	// Overhead: 3 pane borders + 2 title lines for stdout/stderr + title bar
 	// (the params title is already counted in paramPaneContent)
 	totalOverhead := 3*paneFrameV + 2
-	remaining := m.height - 1 - paramPaneContent - totalOverhead
+	remaining := m.height - 2 - paramPaneContent - totalOverhead
 
 	var stdoutVH, stderrVH int
 	if remaining < 6 {
@@ -674,6 +679,27 @@ func (m model) renderViewportContent(vp viewport.Model) string {
 		return ""
 	}
 	return strings.Join(lines[top:bottom], "\n")
+}
+
+// renderTitle returns the title bar showing workflow name, description, and session name.
+func (m model) renderTitle() string {
+	if m.workflow == nil || m.session == nil {
+		return ""
+	}
+	wfName := m.workflow.Name
+	wfDesc := m.workflow.Description
+	sessionName := m.session.Name
+
+	var parts []string
+	parts = append(parts, titleStyle.Render(wfName))
+	if wfDesc != "" {
+		parts = append(parts, sessionStyle.Render("—"))
+		parts = append(parts, sessionStyle.Render(wfDesc))
+	}
+	parts = append(parts, sessionStyle.Render("["+sessionName+"]"))
+
+	title := lipgloss.JoinHorizontal(lipgloss.Center, parts...)
+	return lipgloss.NewStyle().Width(m.width).Render(title)
 }
 
 func (m model) canRun() bool {
