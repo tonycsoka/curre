@@ -314,16 +314,13 @@ func (m model) View() tea.View {
 	// and the pane's Width wrapping (both are not ANSI-aware in lipgloss).
 	// Glamour already wraps at the correct width, so we render directly.
 	var stdoutContent string
-	var stdout string
-	if m.workflow != nil && m.cursor < len(m.workflow.Steps) && m.workflow.Steps[m.cursor].OutputType == OutputMarkdown {
+	if m.workflow != nil && m.cursor < len(m.workflow.Steps) && m.workflow.Steps[m.cursor].OutputType == OutputMarkdown && m.stdoutViewport.GetContent() != "" {
 		stdoutContent = m.renderViewportContent(m.stdoutViewport)
-		stdout = paneStyle.Render(
-			paneTitleStyle.Render("Stdout") + "\n" + stdoutContent)
 	} else {
 		stdoutContent = m.stdoutViewport.View()
-		stdout = paneStyle.Width(max(2, rightW-paneFrameH)).Render(
-			paneTitleStyle.Render("Stdout") + "\n" + stdoutContent)
 	}
+	stdout := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
+		paneTitleStyle.Render("Stdout") + "\n" + stdoutContent)
 
 	params := paneStyle.Width(max(2, rightW-paneFrameH)).Render(
 		paneTitleStyle.Render("Parameters") + "\n" + paramsContent)
@@ -369,11 +366,11 @@ func (m model) Cursor() *tea.Cursor {
 // --- Layout ---
 
 func (m model) leftWidth() int {
-	w := m.width / 3
-	if w > 30 {
-		w = 30
+	w := m.width / 2
+	if w > 45 {
+		w = 45
 	}
-	return max(w, 10)
+	return max(w, 15)
 }
 
 func (m model) rightWidth() int {
