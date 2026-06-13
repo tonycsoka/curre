@@ -112,7 +112,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.session.UpdateStepState(msg.stepID, StepState{
 			Status:   msg.status,
 			ExitCode: msg.exitCode,
-			Output:   string(m.stdoutBuffer) + "\n--- stderr ---\n" + string(m.stderrBuffer),
+			Stdout:   string(m.stdoutBuffer),
+			Stderr:   string(m.stderrBuffer),
 		})
 		m.runner = nil
 		m.currentStepID = ""
@@ -164,10 +165,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.session = m.sessionList[m.sessionCursor]
 					m.cursor = 0
 					m.updateParamInputs()
-					m.stdoutBuffer = nil
-					m.stderrBuffer = nil
-					m.stdoutViewport.SetContent("")
-					m.stderrViewport.SetContent("")
+					m.loadStepOutput()
 					m.showSessionList = false
 					return m, nil
 				}
@@ -208,10 +206,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.loadStepOutput()
 			}
 		case "down", "j":
 			if m.workflow != nil && m.cursor < len(m.workflow.Steps)-1 {
 				m.cursor++
+				m.loadStepOutput()
 			}
 		case "tab":
 			if len(m.paramNames) > 0 {
@@ -521,6 +521,29 @@ func (m *model) skipCurrentStep() {
 	}
 	step := m.workflow.Steps[m.cursor]
 	m.session.UpdateStepState(step.ID, StepState{Status: StatusSkipped})
+}
+
+// loadStepOutput populates the stdout/stderr buffers from the currently selected step.
+func (m *model) loadStepOutput() {
+	if m.workflow == nil || m.session == nil || m.cursor >= len(m.workflow.Steps) {
+		m.stdoutBuffer = nil
+		m.stderrBuffer = nil
+		m.stdoutViewport.SetContent("")
+		m.stderrViewport.SetContent("")
+		return
+	}
+	step := m.workflow.Steps[m.cursor]
+	state := m.session.StepStates[step.ID]
+	m.stdoutBuffer = []byte(state.Stdout)
+	m.stderrBuffer = []byte(state.Stderr)
+	// Backward compat: if new fields are empty, try old Output field
+	if m.stdoutBuffer == nil && m.stderrBuffer == nil && state.Output != "" {
+		out, err := state.GetOutput()
+		m.stdoutBuffer = []byte(out)
+		m.stderrBuffer = []byte(err)
+	}
+	m.stdoutViewport.SetContent(string(m.stdoutBuffer))
+	m.stderrViewport.SetContent(string(m.stderrBuffer))
 }
 
 func (m model) canRun() bool {
