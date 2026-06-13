@@ -6,11 +6,12 @@ A JSON-driven terminal UI for running sequenced, parameterised shell workflows.
 
 - **JSON-driven workflows**: Define steps, parameters, and scripts in a simple JSON file.
 - **Interactive parameter input**: Edit parameters in the TUI before running each step.
-- **Sequential execution**: Steps unlock only after the previous step succeeds (or is bypassed).
-- **Session persistence**: Sessions auto-save and are directory-aware. Resume where you left off.
+- **Sequential execution**: Steps unlock only after the previous step succeeds (or is skipped).
+- **Session persistence**: Auto-saved, directory-aware sessions with unique datetime-based names. Resume or switch between sessions.
 - **Live output**: Stream stdout/stderr from scripts in real-time.
-- **Bypass support**: If a step fails, manually bypass it with confirmation to unlock the next step.
-- **Run once per session**: Mark steps that should only execute once per session.
+- **Markdown output**: Steps can render their output as styled markdown via glamour.
+- **Run-type indicators**: Steps show icons indicating whether they're repeatable (↻) or run-once (⊘).
+- **Step info pane**: Shows description and last run time for the selected step.
 
 ## Installation
 
@@ -41,11 +42,6 @@ Example:
       "type": "string",
       "default": "dev",
       "description": "Target environment"
-    },
-    "version": {
-      "type": "string",
-      "default": "1.0.0",
-      "description": "App version"
     }
   },
   "steps": [
@@ -53,7 +49,7 @@ Example:
       "id": "build",
       "name": "Build",
       "script": "scripts/build.sh",
-      "params": ["env", "version"],
+      "params": ["env"],
       "run_once_per_session": false,
       "description": "Build the application"
     },
@@ -61,8 +57,8 @@ Example:
       "id": "deploy",
       "name": "Deploy",
       "script": "scripts/deploy.sh",
-      "params": ["env", "version"],
-      "run_once_per_session": false,
+      "params": ["env"],
+      "run_once_per_session": true,
       "description": "Deploy the application"
     }
   ]
@@ -72,6 +68,7 @@ Example:
 ### Field Reference
 
 - `name` (string, required): Workflow name.
+- `description` (string): Workflow description shown in the title bar.
 - `parameters` (object): Global parameters available to all steps.
   - `type`: Parameter type (`string`).
   - `default`: Default value.
@@ -82,7 +79,8 @@ Example:
   - `script`: Path to shell script (relative to workflow JSON or absolute).
   - `params`: Array of parameter names to pass as positional arguments to the script.
   - `run_once_per_session`: If `true`, the step is skipped if it already succeeded in the current session.
-  - `description`: Optional description.
+  - `output_type`: Set to `"markdown"` to render the step's stdout as styled markdown.
+  - `description`: Description shown in the step info pane.
 
 ## Key Bindings
 
@@ -93,20 +91,64 @@ Example:
 | `Shift+Tab` | Previous parameter input |
 | `Esc` | Unfocus parameters / close modals |
 | `r` | Run selected step |
-| `b` | Bypass failed step (with confirmation) |
-| `n` | Skip step with `run_once_per_session` |
-| `s` | Show sessions for current directory |
+| `d` | Skip step (with confirmation) |
+| `s` | Show session picker |
+| `PgUp` / `PgDown` | Scroll stdout pane |
+| `Home` / `End` | Jump to top/bottom of stdout |
 | `q` / `Ctrl+C` | Quit |
 
-## Session Storage
+### Session Picker
 
-Sessions are automatically saved to:
+Press `s` to open the session picker:
 
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Navigate sessions |
+| `Enter` | Load selected session |
+| `n` | Create new session |
+| `q` / `Esc` | Close picker |
+
+## Session System
+
+Sessions are automatically created and saved. Each session has a unique name based on the current datetime (`YYYY-MM-DD HH:MM:SS`).
+
+**Auto-load rules on startup:**
+- No previous session → create a new one
+- Latest session has all steps done → create a new one
+- Latest session has pending steps → resume that session
+
+**Session storage:**
 ```
-~/.local/share/tui-workflow/sessions/<workflow-name>-<cwd-hash>.json
+~/.local/share/tui-workflow/sessions/
+  <cwd-hash>/
+    <workflow-name>/
+      <datetime>.json
 ```
 
-Sessions are directory-aware. Running the same workflow from different directories creates separate sessions.
+Sessions are scoped by working directory and workflow name.
+
+## Markdown Output
+
+Steps can render their stdout as styled markdown by setting `output_type` to `"markdown"`:
+
+```json
+{
+  "id": "readme",
+  "name": "Generate README",
+  "script": "scripts/markdown.sh",
+  "output_type": "markdown",
+  "description": "Generate a markdown README"
+}
+```
+
+The output is rendered via glamour with a dark theme. Use `PgUp`/`PgDown` to scroll through the rendered content.
+
+## Step Icons
+
+In the step list, each step shows two icons:
+
+- **Status icon**: `○` pending, `●` running, `✓` done, `✗` failed, `⊘` skipped
+- **Run-type icon**: `↻` repeatable, `⊘` run-once per session
 
 ## Development
 
