@@ -302,10 +302,14 @@ func (m model) View() tea.View {
 	leftW := m.leftWidth()
 	rightW := m.rightWidth()
 
-	leftContentRaw := m.renderStepListContent(m.leftContentW())
-	leftContentH := max(1, m.height-1-leftPaneStyle.GetVerticalFrameSize())
-	leftContent := lipgloss.NewStyle().MaxHeight(leftContentH).Render(leftContentRaw)
-	left := leftPaneStyle.Width(max(2, leftW-leftPaneStyle.GetHorizontalFrameSize())).Height(max(1, m.height-2-leftPaneStyle.GetVerticalFrameSize())).Render(leftContent)
+	leftContentW := max(2, leftW-leftPaneStyle.GetHorizontalFrameSize())
+	stepsContentH := max(3, m.height-10)
+	infoContentH := 2
+
+	leftContentRaw := m.renderStepListContent(leftContentW)
+	stepsPane := leftPaneStyle.Width(leftContentW).Height(stepsContentH).Render(leftContentRaw)
+	infoPane := leftPaneStyle.Width(leftContentW).Height(infoContentH).Render(m.renderStepInfo(leftContentW))
+	left := lipgloss.JoinVertical(lipgloss.Left, stepsPane, infoPane)
 
 	rightContentW := max(2, rightW-paneFrameH)
 	paramsContent := m.renderParamContent(rightContentW)
@@ -500,6 +504,28 @@ func (m model) renderStepListContent(w int) string {
 
 	content := strings.Join(lines, "\n")
 	return content
+}
+
+// renderStepInfo returns a short info block for the currently selected step.
+func (m model) renderStepInfo(w int) string {
+	if m.workflow == nil || m.session == nil || m.cursor >= len(m.workflow.Steps) {
+		return ""
+	}
+	step := m.workflow.Steps[m.cursor]
+	state := m.session.StepStates[step.ID]
+
+	desc := step.Description
+	if desc == "" {
+		desc = "(no description)"
+	}
+	lastRun := "Never"
+	if state.RunAt != "" {
+		lastRun = state.RunAt
+	}
+
+	descLine := lipgloss.NewStyle().MaxWidth(w).Render(desc)
+	runLine := lipgloss.NewStyle().Foreground(lipgloss.Color("244")).MaxWidth(w).Render("Last run: " + lastRun)
+	return descLine + "\n" + runLine
 }
 
 func (m model) statusIcon(status StepStatus) string {
