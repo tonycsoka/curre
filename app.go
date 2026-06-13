@@ -736,7 +736,7 @@ func (m model) canSkip() bool {
 	}
 	step := m.workflow.Steps[m.cursor]
 	state := m.session.StepStates[step.ID]
-	return step.RunOncePerSession && state.Status == StatusPending
+	return state.Status == StatusPending || state.Status == StatusFailed
 }
 
 func (m *model) updateParamInputs() {

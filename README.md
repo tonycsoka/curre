@@ -31,6 +31,12 @@ Example:
 ./tui-workflow examples/deploy.json
 ```
 
+A comprehensive demo showing all features:
+
+```bash
+./tui-workflow examples/full-demo.json
+```
+
 ## Workflow JSON Format
 
 ```json

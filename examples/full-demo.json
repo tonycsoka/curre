@@ -1,0 +1,55 @@
+{
+  "name": "full-demo",
+  "description": "Demonstrates all workflow features",
+  "parameters": {
+    "env": {
+      "type": "string",
+      "default": "dev",
+      "description": "Target environment"
+    },
+    "verbose": {
+      "type": "string",
+      "default": "true",
+      "description": "Enable verbose output"
+    }
+  },
+  "steps": [
+    {
+      "id": "hello",
+      "name": "Hello World",
+      "script": "scripts/hello.sh",
+      "description": "A simple greeting with text output",
+      "run_once_per_session": false
+    },
+    {
+      "id": "report",
+      "name": "Generate Report",
+      "script": "scripts/report.sh",
+      "output_type": "markdown",
+      "description": "Produces markdown output with tables and formatting",
+      "run_once_per_session": true
+    },
+    {
+      "id": "warn",
+      "name": "Warning Check",
+      "script": "scripts/warning.sh",
+      "description": "Produces stderr output and a non-zero exit code",
+      "run_once_per_session": false
+    },
+    {
+      "id": "deploy",
+      "name": "Deploy",
+      "script": "scripts/deploy.sh",
+      "params": ["env", "verbose"],
+      "description": "Uses parameters and depends on previous steps",
+      "run_once_per_session": true
+    },
+    {
+      "id": "cleanup",
+      "name": "Cleanup",
+      "script": "scripts/cleanup.sh",
+      "description": "Final cleanup step, repeatable",
+      "run_once_per_session": false
+    }
+  ]
+}
