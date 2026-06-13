@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+func logWarning(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "tui-workflow: "+format+"\n", args...)
+}
+
 // StepStatus represents the execution state of a step.
 type StepStatus string
 
@@ -179,7 +183,8 @@ func FindSessionsForWorkflow(workflowName, cwd string) ([]*Session, error) {
 			path := filepath.Join(dir, name)
 			sess, err := LoadSessionFromPath(path)
 			if err != nil {
-				continue // skip corrupted files
+				logWarning("skipping corrupted session file %s: %v", path, err)
+				continue
 			}
 			if sess != nil {
 				sessions = append(sessions, sess)

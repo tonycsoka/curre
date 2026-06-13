@@ -943,8 +943,15 @@ func (m *model) runCurrentStep() tea.Cmd {
 	}
 	step := m.workflow.Steps[m.cursor]
 	scriptPath := ResolveScriptPath(m.workflowDir, step.Script)
-	if _, err := os.Stat(scriptPath); err != nil {
+	info, err := os.Stat(scriptPath)
+	if err != nil {
 		m.stderrBuffer = append(m.stderrBuffer, fmt.Sprintf("Script not found: %s\n", scriptPath)...)
+		m.stderrViewport.SetContent(string(m.stderrBuffer))
+		m.stderrViewport.GotoBottom()
+		return nil
+	}
+	if info.Mode()&0111 == 0 {
+		m.stderrBuffer = append(m.stderrBuffer, fmt.Sprintf("Script is not executable: %s\n", scriptPath)...)
 		m.stderrViewport.SetContent(string(m.stderrBuffer))
 		m.stderrViewport.GotoBottom()
 		return nil

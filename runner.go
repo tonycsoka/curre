@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
@@ -32,6 +33,7 @@ type stepRunner struct {
 	resultChan chan shellDoneMsg
 	stepID     string
 	cancel     context.CancelFunc
+	done       chan struct{}
 }
 
 func newStepRunner(step Step, workflowDir string, scriptPath string, params []string) *stepRunner {
@@ -39,12 +41,14 @@ func newStepRunner(step Step, workflowDir string, scriptPath string, params []st
 	stdoutChan := make(chan string, 1000)
 	stderrChan := make(chan string, 1000)
 	resultChan := make(chan shellDoneMsg, 1)
+	done := make(chan struct{})
 
 	cmd := exec.CommandContext(ctx, scriptPath, params...)
 	cmd.Dir = workflowDir
 
 	go func() {
 		defer cancel()
+		defer close(resultChan)
 
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -71,10 +75,17 @@ func newStepRunner(step Step, workflowDir string, scriptPath string, params []st
 			buf := make([]byte, 1024*1024)
 			scanner.Buffer(buf, cap(buf))
 			for scanner.Scan() {
-				stdoutChan <- scanner.Text() + "\n"
+				select {
+				case stdoutChan <- scanner.Text() + "\n":
+				case <-done:
+					return
+				}
 			}
 			if err := scanner.Err(); err != nil {
-				stderrChan <- fmt.Sprintf("stdout scanner error: %v\n", err)
+				select {
+				case stderrChan <- fmt.Sprintf("stdout scanner error: %v\n", err):
+				case <-done:
+				}
 			}
 		}()
 
@@ -84,16 +95,24 @@ func newStepRunner(step Step, workflowDir string, scriptPath string, params []st
 			buf := make([]byte, 1024*1024)
 			scanner.Buffer(buf, cap(buf))
 			for scanner.Scan() {
-				stderrChan <- scanner.Text() + "\n"
+				select {
+				case stderrChan <- scanner.Text() + "\n":
+				case <-done:
+					return
+				}
 			}
 			if err := scanner.Err(); err != nil {
-				stderrChan <- fmt.Sprintf("stderr scanner error: %v\n", err)
+				select {
+				case stderrChan <- fmt.Sprintf("stderr scanner error: %v\n", err):
+				case <-done:
+				}
 			}
 		}()
 
 		if err := cmd.Wait(); err != nil {
 			exitCode := -1
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
 				exitCode = exitErr.ExitCode()
 			}
 			wg.Wait()
@@ -110,6 +129,7 @@ func newStepRunner(step Step, workflowDir string, scriptPath string, params []st
 		resultChan: resultChan,
 		stepID:     step.ID,
 		cancel:     cancel,
+		done:       done,
 	}
 }
 
@@ -134,6 +154,9 @@ func (r *stepRunner) Stop() {
 	if r != nil && r.cancel != nil {
 		r.cancel()
 	}
+	if r != nil && r.done != nil {
+		close(r.done)
+	}
 }
 
 // Drain returns any remaining output in the buffers without blocking.
@@ -155,7 +178,6 @@ func drainChan(ch chan string) []string {
 		}
 	}
 }
-
 
 func buildParams(step Step, m *model) []string {
 	var params []string

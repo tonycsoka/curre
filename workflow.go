@@ -93,7 +93,16 @@ func (wf *Workflow) Validate() error {
 		}
 		seenIDs[step.ID] = struct{}{}
 
+		if step.OutputType != "" && step.OutputType != OutputText && step.OutputType != OutputMarkdown {
+			return fmt.Errorf("step %d: unknown output_type %q", i, step.OutputType)
+		}
+
+		seenParams := make(map[string]struct{})
 		for _, param := range step.Params {
+			if _, ok := seenParams[param]; ok {
+				return fmt.Errorf("step %q: duplicate parameter %q", step.ID, param)
+			}
+			seenParams[param] = struct{}{}
 			if _, ok := wf.Parameters[param]; !ok {
 				return fmt.Errorf("step %q references undefined parameter %q", step.ID, param)
 			}
