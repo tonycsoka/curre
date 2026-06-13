@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -27,26 +29,51 @@ type StepState struct {
 	ExitCode int        `json:"exit_code,omitempty"`
 	RunAt    string     `json:"run_at,omitempty"`
 	Output   string     `json:"output,omitempty"`
+	Stdout   string     `json:"stdout,omitempty"`
+	Stderr   string     `json:"stderr,omitempty"`
+}
+
+// GetOutput returns the stdout and stderr for a step.
+// For backward compatibility, it falls back to parsing the old combined Output field.
+func (s StepState) GetOutput() (stdout, stderr string) {
+	if s.Stdout != "" || s.Stderr != "" {
+		return s.Stdout, s.Stderr
+	}
+	if s.Output == "" {
+		return "", ""
+	}
+	// Backward compat: parse old combined format
+	parts := strings.SplitN(s.Output, "\n--- stderr ---\n", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return s.Output, ""
 }
 
 // Session is the persisted state for a workflow run in a specific directory.
 type Session struct {
+	Name            string                 `json:"name"`
 	WorkflowName    string                 `json:"workflow_name"`
 	Cwd             string                 `json:"cwd"`
+	CreatedAt       string                 `json:"created_at"`
 	ParameterValues map[string]string      `json:"parameter_values"`
 	StepStates      map[string]StepState   `json:"step_states"`
 }
 
 // NewSession creates a fresh session for the given workflow and directory.
+// The session name is auto-generated from the current datetime.
 func NewSession(wf *Workflow, cwd string) *Session {
 	stepStates := make(map[string]StepState)
 	for _, step := range wf.Steps {
 		stepStates[step.ID] = StepState{Status: StatusPending}
 	}
 
+	now := time.Now()
 	return &Session{
+		Name:            now.Format("2006-01-02T15-04-05.000"),
 		WorkflowName:    wf.Name,
 		Cwd:             cwd,
+		CreatedAt:       now.Format(time.RFC3339),
 		ParameterValues: make(map[string]string),
 		StepStates:      stepStates,
 	}
@@ -61,16 +88,44 @@ func SessionDir() string {
 	return filepath.Join(home, ".local", "share", "tui-workflow", "sessions")
 }
 
-// SessionPath returns the file path for a session based on workflow name and cwd.
-func SessionPath(workflowName, cwd string) string {
+// cwdHash returns the first 8 bytes of the SHA256 hash of the cwd.
+func cwdHash(cwd string) string {
 	hash := sha256.Sum256([]byte(cwd))
-	slug := fmt.Sprintf("%s-%s.json", workflowName, hex.EncodeToString(hash[:8]))
-	return filepath.Join(SessionDir(), slug)
+	return hex.EncodeToString(hash[:8])
 }
 
-// LoadSession reads a session from disk, or returns nil if not found.
-func LoadSession(workflowName, cwd string) (*Session, error) {
-	path := SessionPath(workflowName, cwd)
+// SessionPath returns the file path for a session based on workflow name, cwd, and session name.
+// Structure: ~/.local/share/tui-workflow/sessions/<cwd-hash>/<workflow-name>/<session-name>.json
+func SessionPath(workflowName, cwd, sessionName string) string {
+	return filepath.Join(SessionDir(), cwdHash(cwd), workflowName, sessionName+".json")
+}
+
+// LoadSessionByName reads a specific named session from disk.
+func LoadSessionByName(workflowName, cwd, sessionName string) (*Session, error) {
+	path := SessionPath(workflowName, cwd, sessionName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading session file: %w", err)
+	}
+
+	var sess Session
+	if err := json.Unmarshal(data, &sess); err != nil {
+		return nil, fmt.Errorf("parsing session JSON: %w", err)
+	}
+	if sess.StepStates == nil {
+		sess.StepStates = make(map[string]StepState)
+	}
+	if sess.ParameterValues == nil {
+		sess.ParameterValues = make(map[string]string)
+	}
+	return &sess, nil
+}
+
+// LoadSessionFromPath reads a session from a given file path.
+func LoadSessionFromPath(path string) (*Session, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -94,7 +149,7 @@ func LoadSession(workflowName, cwd string) (*Session, error) {
 
 // SaveSession writes the session to disk, creating directories if needed.
 func SaveSession(sess *Session) error {
-	path := SessionPath(sess.WorkflowName, sess.Cwd)
+	path := SessionPath(sess.WorkflowName, sess.Cwd, sess.Name)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("creating session directory: %w", err)
 	}
@@ -110,10 +165,10 @@ func SaveSession(sess *Session) error {
 	return nil
 }
 
-// FindSessionsForDir returns all session files associated with a given directory.
-func FindSessionsForDir(cwd string) ([]string, error) {
-	sessDir := SessionDir()
-	entries, err := os.ReadDir(sessDir)
+// FindSessionsForWorkflow returns all sessions for a given workflow and directory.
+func FindSessionsForWorkflow(workflowName, cwd string) ([]*Session, error) {
+	dir := filepath.Join(SessionDir(), cwdHash(cwd), workflowName)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -121,19 +176,80 @@ func FindSessionsForDir(cwd string) ([]string, error) {
 		return nil, err
 	}
 
-	var results []string
-	hash := sha256.Sum256([]byte(cwd))
-	targetHash := hex.EncodeToString(hash[:8])
+	var sessions []*Session
 	for _, entry := range entries {
 		name := entry.Name()
 		if !entry.IsDir() && filepath.Ext(name) == ".json" {
-			// Check if filename ends with the cwd hash
-			if len(name) > len(targetHash)+5 && name[len(name)-len(targetHash)-5:len(name)-5] == "-"+targetHash {
-				results = append(results, name)
+			path := filepath.Join(dir, name)
+			sess, err := LoadSessionFromPath(path)
+			if err != nil {
+				continue // skip corrupted files
+			}
+			if sess != nil {
+				sessions = append(sessions, sess)
 			}
 		}
 	}
-	return results, nil
+
+	// Sort by CreatedAt descending (most recent first)
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].CreatedAt > sessions[j].CreatedAt
+	})
+
+	return sessions, nil
+}
+
+// GetLatestSession returns the most recent session for a workflow and directory.
+func GetLatestSession(workflowName, cwd string) (*Session, error) {
+	sessions, err := FindSessionsForWorkflow(workflowName, cwd)
+	if err != nil {
+		return nil, err
+	}
+	if len(sessions) == 0 {
+		return nil, nil
+	}
+	return sessions[0], nil
+}
+
+
+
+// OverallStatus returns the overall status of the session.
+func (sess *Session) OverallStatus() string {
+	total := len(sess.StepStates)
+	if total == 0 {
+		return "empty"
+	}
+
+	done := 0
+	failed := 0
+	running := 0
+	pending := 0
+	for _, state := range sess.StepStates {
+		switch state.Status {
+		case StatusSuccess, StatusSkipped:
+			done++
+		case StatusFailed:
+			failed++
+		case StatusRunning:
+			running++
+		case StatusPending:
+			pending++
+		}
+	}
+
+	if done == total {
+		return "done"
+	}
+	if failed > 0 {
+		return "failed"
+	}
+	if running > 0 {
+		return "running"
+	}
+	if pending == total {
+		return "pending"
+	}
+	return "in progress"
 }
 
 // UpdateStepState updates a step's state and auto-saves the session.

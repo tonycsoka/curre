@@ -33,13 +33,22 @@ func main() {
 	}
 
 	// Load existing session or create new
-	session, err := LoadSession(wf.Name, cwd)
+	sessions, err := FindSessionsForWorkflow(wf.Name, cwd)
 	if err != nil {
-		fmt.Printf("Error loading session: %v\n", err)
+		fmt.Printf("Error finding sessions: %v\n", err)
 		os.Exit(1)
 	}
-	if session == nil {
+
+	var session *Session
+	if len(sessions) == 0 {
 		session = NewSession(wf, cwd)
+	} else {
+		latest := sessions[0]
+		if latest.OverallStatus() == "done" {
+			session = NewSession(wf, cwd)
+		} else {
+			session = latest
+		}
 	}
 
 	m := initialModel(wf, session, workflowDir)

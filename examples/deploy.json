@@ -18,16 +18,22 @@
       "id": "build",
       "name": "Build",
       "script": "scripts/build.sh",
-      "params": ["env", "version"],
-      "run_once_per_session": false,
+      "params": [
+        "env",
+        "version"
+      ],
+      "run_once_per_session": true,
       "description": "Build the application"
     },
     {
       "id": "deploy",
       "name": "Deploy",
       "script": "scripts/deploy.sh",
-      "params": ["env", "version"],
-      "run_once_per_session": false,
+      "params": [
+        "env",
+        "version"
+      ],
+      "run_once_per_session": true,
       "description": "Deploy the application"
     }
   ]

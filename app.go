@@ -50,7 +50,8 @@ type model struct {
 
 	bypassConfirm   bool
 	showSessionList bool
-	sessionList     []string
+	sessionList     []*Session
+	sessionCursor   int
 
 	runner        *stepRunner
 	currentStepID string
@@ -144,8 +145,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.session = NewSession(m.workflow, m.session.Cwd)
 				m.cursor = 0
 				m.updateParamInputs()
+				m.stdoutBuffer = nil
+				m.stderrBuffer = nil
+				m.stdoutViewport.SetContent("")
+				m.stderrViewport.SetContent("")
 				m.showSessionList = false
 				return m, m.autoSave()
+			case "up", "k":
+				if m.sessionCursor > 0 {
+					m.sessionCursor--
+				}
+			case "down", "j":
+				if m.sessionCursor < len(m.sessionList)-1 {
+					m.sessionCursor++
+				}
+			case "enter":
+				if m.sessionCursor < len(m.sessionList) {
+					m.session = m.sessionList[m.sessionCursor]
+					m.cursor = 0
+					m.updateParamInputs()
+					m.stdoutBuffer = nil
+					m.stderrBuffer = nil
+					m.stdoutViewport.SetContent("")
+					m.stderrViewport.SetContent("")
+					m.showSessionList = false
+					return m, nil
+				}
 			}
 			return m, nil
 		}
@@ -208,7 +233,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "s":
 			m.showSessionList = true
-			m.sessionList, _ = FindSessionsForDir(m.session.Cwd)
+			m.sessionCursor = 0
+			m.sessionList, _ = FindSessionsForWorkflow(m.workflow.Name, m.session.Cwd)
 		}
 	}
 
@@ -218,6 +244,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return "Loading..."
+	}
+
+	if m.showSessionList {
+		return m.renderSessionList()
+	}
+
+	if m.bypassConfirm {
+		return m.renderBypassModal()
 	}
 
 	paneFrameH := paneStyle.GetHorizontalFrameSize()
@@ -428,15 +462,46 @@ func (m model) renderBypassModal() string {
 
 func (m model) renderSessionList() string {
 	var lines []string
-	lines = append(lines, "Sessions for this directory:", "")
-	for _, s := range m.sessionList {
-		lines = append(lines, "  "+s)
+	lines = append(lines, paneTitleStyle.Render("Sessions for this workflow"), "")
+	for i, sess := range m.sessionList {
+		cursor := "  "
+		if i == m.sessionCursor {
+			cursor = "> "
+		}
+		status := sess.OverallStatus()
+		statusStyle := lipgloss.NewStyle()
+		switch status {
+		case "done":
+			statusStyle = statusStyle.Foreground(lipgloss.Color("42"))
+		case "failed":
+			statusStyle = statusStyle.Foreground(lipgloss.Color("196"))
+		case "running":
+			statusStyle = statusStyle.Foreground(lipgloss.Color("33"))
+		case "pending":
+			statusStyle = statusStyle.Foreground(lipgloss.Color("244"))
+		default:
+			statusStyle = statusStyle.Foreground(lipgloss.Color("250"))
+		}
+		// Format the datetime for display: 2006-01-02T15-04-05.000 -> 2006-01-02 15:04:05
+		displayName := strings.Replace(sess.Name, "T", " ", 1)
+		if idx := strings.LastIndex(displayName, "."); idx > 0 {
+			displayName = displayName[:idx]
+		}
+		line := fmt.Sprintf("%s%s (%s)", cursor, displayName, statusStyle.Render(status))
+		lines = append(lines, line)
 	}
 	if len(m.sessionList) == 0 {
 		lines = append(lines, "  (none)")
 	}
-	lines = append(lines, "", "Press q or esc to close")
-	return leftPaneStyle.Width(m.width - 4).Height(m.height - 4).Render(strings.Join(lines, "\n"))
+	lines = append(lines, "", "enter pick  n new  q/esc close")
+
+	modalW := min(60, m.width-4)
+	modalH := min(m.height-4, len(lines)+2)
+	contentW := max(2, modalW-leftPaneStyle.GetHorizontalFrameSize())
+	contentH := max(1, modalH-leftPaneStyle.GetVerticalFrameSize())
+	content := lipgloss.NewStyle().MaxWidth(contentW).MaxHeight(contentH).Render(strings.Join(lines, "\n"))
+	overlay := leftPaneStyle.Width(contentW).Height(contentH).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
 }
 
 // --- Logic ---

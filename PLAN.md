@@ -1,192 +1,121 @@
-# TUI Workflow System — Plan
+# Session System Redesign Plan
 
 ## Context
-Build a JSON-driven TUI application that lets users run shell-script workflows step-by-step. Each step is parameterised, and progression is gated on success of the previous step. Sessions auto-save, are directory-aware, and support per-step "run once per session" flags.
 
-## Decisions
+The current session model is a single session per `(workflowName, cwd)` pair. The user wants:
 
-| Decision | Choice |
-|----------|--------|
-| **Language** | Go + Bubble Tea (single binary, Elm architecture, excellent for CLI-centric workflows) |
-| **Parameter passing** | Workflow JSON defines global parameters. TUI shows an editable form for all parameters before a step runs. Values are passed as **positional arguments** to the shell script in the order listed in the step's `params` array. |
-| **Success criteria** | Exit code 0 = success. Anything else = failure, blocking the next step. **Manual bypass available**: user can confirm marking a failed step as bypassed, which unlocks the next step. |
-| **Execution model** | Strictly sequential. A step can only run if the previous step succeeded, was skipped, or was bypassed. |
-| **Session storage** | Auto-saved to `~/.local/share/tui-workflow/sessions/<workflow-name>-<cwd-hash>.json`. Directory-aware: session key is derived from the absolute path of the working directory. |
-| "run once per session" | Per-step boolean flag in JSON. If a step succeeded in the current session and flag is true, it is skipped on subsequent workflow runs. |
+1. **Auto-load on startup:**
+   - No previous session → create a new session with unique name
+   - Previous session has all tasks done (success/skipped) → create a new session
+   - Previous session has pending tasks → resume that session
 
-## JSON Schema
+2. **Session modal:**
+   - Show each session with status (done, in progress, failed, pending)
+   - Allow loading any existing session into the main UI for viewing/inspection
+   - Allow starting a new session
 
-### Workflow Definition
-```json
-{
-  "name": "deploy",
-  "description": "Deploy the application",
-  "parameters": {
-    "env": {
-      "type": "string",
-      "default": "dev",
-      "description": "Target environment"
-    },
-    "version": {
-      "type": "string",
-      "default": "1.0.0",
-      "description": "App version"
-    }
-  },
-  "steps": [
-    {
-      "id": "build",
-      "name": "Build",
-      "script": "scripts/build.sh",
-      "params": ["env", "version"],
-      "run_once_per_session": false,
-      "description": "Build the Docker image"
-    },
-    {
-      "id": "deploy",
-      "name": "Deploy",
-      "script": "scripts/deploy.sh",
-      "params": ["env", "version"],
-      "run_once_per_session": false
-    }
-  ]
+## Approach
+
+Change the session model to support multiple named sessions per workflow per directory.
+
+### Session struct changes
+
+Add `Name` and `CreatedAt` fields:
+
+```go
+type Session struct {
+    Name            string                 `json:"name"`
+    WorkflowName    string                 `json:"workflow_name"`
+    Cwd             string                 `json:"cwd"`
+    CreatedAt       string                 `json:"created_at"`
+    ParameterValues map[string]string      `json:"parameter_values"`
+    StepStates      map[string]StepState   `json:"step_states"`
 }
 ```
 
-### Session State
-```json
-{
-  "workflow_name": "deploy",
-  "cwd": "/home/user/project",
-  "parameter_values": {
-    "env": "staging",
-    "version": "2.0.0"
-  },
-  "step_states": {
-    "build": {
-      "status": "success",
-      "exit_code": 0,
-      "run_at": "2026-01-15T10:30:00Z",
-      "output": "..."
-    },
-    "deploy": {
-      "status": "pending"
+### File naming
+
+New format: `workflowName-<hash>-<sessionName>.json`
+
+Example: `deploy-abc123de-run-1.json`
+
+### New functions
+
+- `NewSession(wf, cwd, name)` — creates a session with a given name
+- `GenerateSessionName(workflowName, cwd)` — generates unique `run-N` name
+- `SessionPath(workflowName, cwd, name)` — returns file path
+- `FindSessionsForWorkflow(workflowName, cwd)` — returns all sessions for this workflow+dir, sorted by CreatedAt desc
+- `GetLatestSession(workflowName, cwd)` — returns most recent session
+- `LoadSessionByName(workflowName, cwd, name)` — loads a specific session
+- `Session.OverallStatus()` — returns `done`, `failed`, `running`, `pending`, or `in progress`
+
+### Auto-load logic (main.go)
+
+```go
+sessions, _ := FindSessionsForWorkflow(wf.Name, cwd)
+if len(sessions) == 0 {
+    session = NewSession(wf, cwd, GenerateSessionName(wf.Name, cwd))
+} else {
+    latest := sessions[0]
+    if latest.OverallStatus() == "done" {
+        session = NewSession(wf, cwd, GenerateSessionName(wf.Name, cwd))
+    } else {
+        session = latest
     }
-  }
 }
 ```
 
-Status values: `pending`, `running`, `success`, `failed`, `skipped`, `bypassed`.
+### UI changes (app.go)
 
-## File Structure
+- Change `sessionList` from `[]string` to `[]*Session`
+- `renderSessionList` shows name + status with color coding
+- Status styles: `done` (green), `failed` (red), `running` (yellow), `pending` (gray), `in progress` (default)
+- Enter loads the selected session
+- `n` creates a new session with auto-generated name
 
-```
-.
-├── main.go              # Entry point: go run . workflow.json
-├── go.mod
-├── app.go               # Bubble Tea Model, Init, Update, View
-├── workflow.go          # Workflow JSON parsing / validation
-├── session.go           # Session load/save/auto-save
-├── runner.go            # Shell command execution with live output (tea.Cmd)
-├── widgets.go           # Custom Bubble Tea components
-│   (step list, parameter form, output viewport, bypass modal)
-├── examples/
-│   ├── deploy.json      # Example workflow definition
-│   └── scripts/
-│       ├── build.sh     # Dummy build script (echoes args, exits 0)
-│       └── deploy.sh    # Dummy deploy script (echoes args, exits 0)
-└── README.md
-```
+### Key handler updates
 
-### Example Workflow (`examples/deploy.json`)
-```json
-{
-  "name": "deploy",
-  "description": "Deploy the application",
-  "parameters": {
-    "env": {
-      "type": "string",
-      "default": "dev",
-      "description": "Target environment"
-    },
-    "version": {
-      "type": "string",
-      "default": "1.0.0",
-      "description": "App version"
-    }
-  },
-  "steps": [
-    {
-      "id": "build",
-      "name": "Build",
-      "script": "examples/scripts/build.sh",
-      "params": ["env", "version"],
-      "run_once_per_session": false,
-      "description": "Build the application"
-    },
-    {
-      "id": "deploy",
-      "name": "Deploy",
-      "script": "examples/scripts/deploy.sh",
-      "params": ["env", "version"],
-      "run_once_per_session": false,
-      "description": "Deploy the application"
-    }
-  ]
-}
-```
+- `s` key: load all sessions for this workflow, show modal
+- `n` in modal: create new session with unique name
+- `enter` in modal: load selected session
+- `up`/`down` in modal: navigate sessions
 
-### Example Scripts
+## Files to modify
 
-**`examples/scripts/build.sh`**
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-echo "[BUILD] Starting build for env=$1 version=$2"
-echo "[BUILD] Compiling..."
-echo "[BUILD] Done."
-```
-
-**`examples/scripts/deploy.sh`**
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-echo "[DEPLOY] Starting deploy for env=$1 version=$2"
-echo "[DEPLOY] Pushing to server..."
-echo "[DEPLOY] Done."
-```
+- `session.go` — core session model changes
+- `main.go` — startup auto-load logic
+- `app.go` — session picker UI and key handlers
 
 ## Reuse
-- **Bubble Tea** core (`tea.Model`, `tea.Cmd`, `tea.Msg`) for the app loop and state management.
-- **Bubbles** library (`list`, `viewport`, `textinput`, `textarea`, `spinner`, `help`) for reusable TUI components.
-- **Lipgloss** for styling and layout.
-- **Standard library**: `os/exec` for shell commands with live output via `io.Pipe`, `encoding/json`, `path/filepath`, `crypto/sha256` (for directory hashing), `time`.
+
+- Existing `Session` struct and `StepStatus` types
+- Existing `lipgloss` styles for status color coding
+- Existing `SaveSession` and `LoadSessionFromPath` (updated)
 
 ## Steps
 
-- [ ] **Step 1 — Scaffold**: `go mod init`, import `github.com/charmbracelet/bubbletea`, `bubbles`, `lipgloss`. Create `main.go` entry point.
-- [ ] **Step 2 — Workflow Parser**: Define Go structs for Workflow, Parameter, Step. Load and validate JSON with `encoding/json`.
-- [ ] **Step 3 — Session Manager**: Implement load/save with directory-aware path resolution (`~/.local/share/tui-workflow/sessions/`). Auto-save on every state change.
-- [ ] **Step 4 — TUI Skeleton**: Build Bubble Tea model with three-pane layout: `StepList` (left), `ParamForm` + `OutputViewport` (right, stacked), plus `Help` footer.
-- [ ] **Step 5 — Parameter Form**: Use `textinput` bubbles to render inputs for all parameters. Show defaults. Validate before run.
-- [ ] **Step 6 — Shell Runner**: Implement a `tea.Cmd` that runs `os/exec` asynchronously via goroutines. Stream stdout/stderr lines as messages. Capture exit code.
-- [ ] **Step 7 — Step Logic + Bypass**: Implement sequential gating. Only enable "Run" for the next pending step if previous step succeeded or was bypassed. When a step fails, show a "Bypass" action. Trigger a confirmation modal; on confirm, set status to `bypassed` and unlock the next step. Handle `run_once_per_session` by checking session state and offering "Skip".
-- [ ] **Step 8 — Session Switching**: Add a keybind to list existing sessions for the current directory and switch between them.
-- [ ] **Step 9 — Polish**: Key bindings (r run, b bypass, n next, q quit, ? help), status colors (lipgloss), scroll lock on output viewport, window size responsiveness.
+- [ ] Update `Session` struct with `Name` and `CreatedAt`
+- [ ] Update `NewSession` to accept name
+- [ ] Update `SessionPath` to include name
+- [ ] Add `GenerateSessionName`
+- [ ] Add `FindSessionsForWorkflow`
+- [ ] Add `GetLatestSession`
+- [ ] Add `LoadSessionByName`
+- [ ] Add `Session.OverallStatus()`
+- [ ] Update `SaveSession` to use new path
+- [ ] Update `main.go` auto-load logic
+- [ ] Update `app.go` model to use `[]*Session`
+- [ ] Update `renderSessionList` to show status
+- [ ] Update key handlers for session picker
+- [ ] Update `FindSessionsForDir` (or replace with `FindSessionsForWorkflow`)
+- [ ] Test: build and verify
 
 ## Verification
 
-1. Create a sample workflow JSON with two steps and two parameters.
-2. Create dummy `scripts/build.sh` and `scripts/deploy.sh` that echo arguments and exit 0.
-3. Run `go run . sample.json`.
-4. Verify:
-   - Parameters appear with defaults.
-   - Changing parameters and running step 1 passes them as positional args.
-   - Live output is shown in the viewport.
-   - Step 2 is disabled until step 1 succeeds.
-   - Exit 1 on step 1 blocks step 2.
-   - Pressing `b` on a failed step opens a confirmation modal; confirming marks it `bypassed` and unlocks step 2.
-   - `run_once_per_session: true` causes step to be skipped on second run.
-   - Closing and reopening the app restores the session state.
-   - Session file exists in `~/.local/share/tui-workflow/sessions/`. 
-
+Build the app, run with a workflow, verify:
+1. First run creates a new session
+2. After all steps done, next run creates a new session
+3. With pending steps, same session is resumed
+4. Session picker shows all sessions with status
+5. Can load an old session from picker
+6. Can create new session from picker

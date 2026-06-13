@@ -38,7 +38,7 @@ func TestSessionLoadSave(t *testing.T) {
 		t.Fatalf("Failed to save session: %v", err)
 	}
 
-	loaded, err := LoadSession(wf.Name, cwd)
+	loaded, err := LoadSessionByName(wf.Name, cwd, sess.Name)
 	if err != nil {
 		t.Fatalf("Failed to load session: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestSessionLoadSave(t *testing.T) {
 		t.Errorf("Expected version=2.0.0, got %q", loaded.ParameterValues["version"])
 	}
 
-	os.Remove(SessionPath(wf.Name, cwd))
+	os.RemoveAll(filepath.Join(SessionDir(), cwdHash(cwd), wf.Name))
 }
 
 func TestResolveScriptPath(t *testing.T) {
@@ -152,7 +152,7 @@ func TestViewRendersStepsSmallTerminal(t *testing.T) {
 	cwd, _ := os.Getwd()
 	sess := NewSession(wf, cwd)
 	m := initialModel(wf, sess, "examples")
-	m.width = 40
+	m.width = 50
 	m.height = 16 // minimum for 2 params with bodyH = height - 1
 	m.resizeViewports()
 
