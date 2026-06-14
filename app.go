@@ -77,6 +77,28 @@ var (
 		BorderTop(false).
 		BorderLeft(false).
 		BorderRight(false)
+
+	// Cursor variants (hot path — avoid allocating per line)
+	stepPendingCursorStyle        = stepPendingStyle.Copy().Background(lipgloss.Color(cursorBgColor)).Bold(true)
+	stepRunningCursorStyle        = stepRunningStyle.Copy().Background(lipgloss.Color(cursorBgColor)).Bold(true)
+	stepSuccessCursorStyle        = stepSuccessStyle.Copy().Background(lipgloss.Color(cursorBgColor)).Bold(true)
+	stepSuccessRunOnceCursorStyle = stepSuccessRunOnceStyle.Copy().Background(lipgloss.Color(cursorBgColor)).Bold(true)
+	stepFailedCursorStyle         = stepFailedStyle.Copy().Background(lipgloss.Color(cursorBgColor)).Bold(true)
+	stepSkippedCursorStyle        = stepSkippedStyle.Copy().Background(lipgloss.Color(cursorBgColor)).Bold(true)
+
+	// Reusable one-off styles
+	warnStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	errStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	metaStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color(metaFgColor))
+	titleBarStyle     = lipgloss.NewStyle()
+	modalContentStyle = lipgloss.NewStyle()
+
+	// Session list status styles
+	sessionStatusDoneStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	sessionStatusFailedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	sessionStatusRunningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
+	sessionStatusPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	sessionStatusDefaultStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
 )
 
 // Layout constants for the TUI.
@@ -607,10 +629,9 @@ func (m model) View() tea.View {
 	if m.allParamsSet() {
 		footerText = "↑/↓ nav  ←/→ tabs  r run  R auto-run  d skip  tab params  s sessions  pgup/pgdn scroll  q quit"
 	} else {
-		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 		footerText = "↑/↓ nav  ←/→ tabs  d skip  tab params  s sessions  pgup/pgdn scroll  q quit  " + warnStyle.Render("⚠ set all parameters to run")
 	}
-	footer := lipgloss.NewStyle().Height(1).Render(footerText)
+	footer := footerText
 
 	all := lipgloss.JoinVertical(lipgloss.Left, titleBar, body, footer)
 	v := tea.NewView(all)
@@ -744,53 +765,45 @@ func (m model) renderStepListContent(w int) string {
 			group := item.Group
 			status := m.session.ItemStatus(item)
 
-			style := stepPendingStyle
 			statusText := "pending"
 			switch status {
 			case StatusRunning:
-				style = stepRunningStyle
 				statusText = "running"
 			case StatusSuccess:
-				style = stepSuccessStyle
 				statusText = "done"
 			case StatusFailed:
-				style = stepFailedStyle
 				statusText = "failed"
 			case StatusSkipped:
-				style = stepSkippedStyle
 				statusText = "skipped"
 			}
 
 			prefix := "  "
+			style := styleForStatus(status, false)
 			if i == m.cursor {
 				prefix = "> "
-				style = style.Copy().Background(lipgloss.Color(cursorBgColor)).Bold(true)
+				style = styleForStatus(status, true)
 			}
 
 			icon := m.statusIcon(status)
-			line := style.Copy().MaxWidth(w).Render(fmt.Sprintf("%s%s %s — %s", prefix, icon, group.Name, statusText))
+			line := style.MaxWidth(w).Render(fmt.Sprintf("%s%s %s — %s", prefix, icon, group.Name, statusText))
 			lines = append(lines, line)
 		} else {
 			flat := m.workflow.FlatSteps()[dl.stepIndex]
 			step := flat.Step
 			state := m.session.StepStates[step.ID]
 
-			style := stepPendingStyle
 			statusText := "pending"
 			switch state.Status {
 			case StatusRunning:
-				style = stepRunningStyle
 				statusText = "running"
 			case StatusSuccess:
-				style = stepSuccessStyle
 				statusText = "done"
 			case StatusFailed:
-				style = stepFailedStyle
 				statusText = "failed"
 			case StatusSkipped:
-				style = stepSkippedStyle
 				statusText = "skipped"
 			}
+			style := styleForStatus(state.Status, false)
 			if step.RunOnce && state.Status == StatusSuccess {
 				style = stepSuccessRunOnceStyle
 			}
@@ -805,12 +818,16 @@ func (m model) renderStepListContent(w int) string {
 				} else {
 					prefix = "> "
 				}
-				style = style.Copy().Background(lipgloss.Color(cursorBgColor)).Bold(true)
+				if step.RunOnce && state.Status == StatusSuccess {
+					style = stepSuccessRunOnceCursorStyle
+				} else {
+					style = styleForStatus(state.Status, true)
+				}
 			}
 
 			icon := m.statusIcon(state.Status)
 			runIcon := m.runTypeIcon(step)
-			line := style.Copy().MaxWidth(w).Render(fmt.Sprintf("%s%s %s %s — %s", prefix, icon, runIcon, step.Name, statusText))
+			line := style.MaxWidth(w).Render(fmt.Sprintf("%s%s %s %s — %s", prefix, icon, runIcon, step.Name, statusText))
 			lines = append(lines, line)
 		}
 	}
@@ -835,8 +852,10 @@ func (m model) renderStepInfo(w int) string {
 		status := m.session.ItemStatus(item)
 		statusText := string(status)
 		icon := m.statusIcon(status)
-		metaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(metaFgColor))
-		return lipgloss.NewStyle().Render(desc) + "\n" + metaStyle.Render(fmt.Sprintf("Status: %s %s", icon, statusText))
+		return lipgloss.JoinVertical(lipgloss.Left,
+			desc,
+			metaStyle.Render(fmt.Sprintf("Status: %s %s", icon, statusText)),
+		)
 	}
 	if dl.stepIndex < 0 || dl.stepIndex >= len(m.workflow.FlatSteps()) {
 		return ""
@@ -860,13 +879,13 @@ func (m model) renderStepInfo(w int) string {
 		stepType += " - auto"
 	}
 	icon := m.statusIcon(state.Status)
-	metaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(metaFgColor))
 
-	descLine := lipgloss.NewStyle().Render(desc)
-	typeLine := metaStyle.Render(fmt.Sprintf("Type: %s", stepType))
-	statusLine := metaStyle.Render(fmt.Sprintf("Status: %s %s", icon, string(state.Status)))
-	runLine := metaStyle.Render(fmt.Sprintf("Run at: %s", lastRun))
-	return descLine + "\n" + typeLine + "\n" + statusLine + "\n" + runLine
+	return lipgloss.JoinVertical(lipgloss.Left,
+		desc,
+		metaStyle.Render(fmt.Sprintf("Type: %s", stepType)),
+		metaStyle.Render(fmt.Sprintf("Status: %s %s", icon, string(state.Status))),
+		metaStyle.Render(fmt.Sprintf("Run at: %s", lastRun)),
+	)
 }
 
 func (m model) statusIcon(status StepStatus) string {
@@ -893,6 +912,35 @@ func (m model) runTypeIcon(step Step) string {
 		return "⊘"
 	}
 	return "↻"
+}
+
+func styleForStatus(status StepStatus, cursor bool) lipgloss.Style {
+	if cursor {
+		switch status {
+		case StatusRunning:
+			return stepRunningCursorStyle
+		case StatusSuccess:
+			return stepSuccessCursorStyle
+		case StatusFailed:
+			return stepFailedCursorStyle
+		case StatusSkipped:
+			return stepSkippedCursorStyle
+		default:
+			return stepPendingCursorStyle
+		}
+	}
+	switch status {
+	case StatusRunning:
+		return stepRunningStyle
+	case StatusSuccess:
+		return stepSuccessStyle
+	case StatusFailed:
+		return stepFailedStyle
+	case StatusSkipped:
+		return stepSkippedStyle
+	default:
+		return stepPendingStyle
+	}
 }
 
 func (m model) renderOutputTabs(w int) string {
@@ -962,22 +1010,22 @@ func (m model) renderSessionList() string {
 			cursor = "> "
 		}
 		status := sess.OverallStatus()
-		statusStyle := lipgloss.NewStyle()
+		var statusStyle lipgloss.Style
 		switch status {
 		case "done":
-			statusStyle = statusStyle.Foreground(lipgloss.Color("42"))
+			statusStyle = sessionStatusDoneStyle
 		case "failed":
-			statusStyle = statusStyle.Foreground(lipgloss.Color("196"))
+			statusStyle = sessionStatusFailedStyle
 		case "running":
-			statusStyle = statusStyle.Foreground(lipgloss.Color("33"))
+			statusStyle = sessionStatusRunningStyle
 		case "pending":
-			statusStyle = statusStyle.Foreground(lipgloss.Color("244"))
+			statusStyle = sessionStatusPendingStyle
 		default:
-			statusStyle = statusStyle.Foreground(lipgloss.Color("250"))
+			statusStyle = sessionStatusDefaultStyle
 		}
 		// Format the datetime for display: 2006-01-02T15:04:05.000 -> 2006-01-02 15:04:05
 		displayName := formatSessionNameForDisplay(sess.Name)
-		line := fmt.Sprintf("%s%s (%s)", cursor, displayName, statusStyle.Render(status))
+		line := lipgloss.JoinHorizontal(lipgloss.Left, cursor, displayName, " (", statusStyle.Render(status), ")")
 		lines = append(lines, line)
 	}
 	if len(m.sessionList) == 0 {
@@ -989,7 +1037,7 @@ func (m model) renderSessionList() string {
 	modalH := min(m.height-4, len(lines)+leftPaneStyle.GetVerticalFrameSize())
 	contentW := max(2, modalW-leftPaneStyle.GetHorizontalFrameSize())
 	contentH := max(1, modalH-leftPaneStyle.GetVerticalFrameSize())
-	content := lipgloss.NewStyle().MaxWidth(contentW).MaxHeight(contentH).Render(strings.Join(lines, "\n"))
+	content := modalContentStyle.MaxWidth(contentW).MaxHeight(contentH).Render(strings.Join(lines, "\n"))
 	overlay := leftPaneStyle.Width(contentW).Height(contentH).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
 }
@@ -1049,7 +1097,7 @@ func (m model) renderSkipConfirm() string {
 	modalH := min(m.height-4, len(lines)+leftPaneStyle.GetVerticalFrameSize())
 	contentW := max(2, modalW-leftPaneStyle.GetHorizontalFrameSize())
 	contentH := max(1, modalH-leftPaneStyle.GetVerticalFrameSize())
-	content := lipgloss.NewStyle().MaxWidth(contentW).MaxHeight(contentH).Render(strings.Join(lines, "\n"))
+	content := modalContentStyle.MaxWidth(contentW).MaxHeight(contentH).Render(strings.Join(lines, "\n"))
 	overlay := leftPaneStyle.Width(contentW).Height(contentH).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
 }
@@ -1233,12 +1281,11 @@ func (m model) renderTitle() string {
 	parts = append(parts, sessionStyle.Render("["+sessionName+"]"))
 
 	if m.saveErr != "" {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 		parts = append(parts, errStyle.Render("⚠ "+m.saveErr))
 	}
 
 	title := lipgloss.JoinHorizontal(lipgloss.Center, parts...)
-	return lipgloss.NewStyle().Width(m.width).Render(title)
+	return titleBarStyle.Width(m.width).Render(title)
 }
 
 func (m model) allParamsSet() bool {
