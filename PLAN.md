@@ -1,7 +1,7 @@
 # Plan: Parallel Step Groups
 
 ## Context
-The tui-workflow project currently runs steps sequentially. Each step unlocks only after the previous step succeeds or is skipped. The user wants to add **parallel step groups** — a way to define a set of steps that run simultaneously, with any subsequent steps waiting for the entire group to finish before proceeding.
+The curre project currently runs steps sequentially. Each step unlocks only after the previous step succeeds or is skipped. The user wants to add **parallel step groups** — a way to define a set of steps that run simultaneously, with any subsequent steps waiting for the entire group to finish before proceeding.
 
 ## Key Code Findings
 

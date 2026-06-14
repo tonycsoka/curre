@@ -1,8 +1,11 @@
-# TUI Workflow
+# Curre
 
 A JSON-driven terminal UI for running sequenced, parameterised shell workflows.
 
-> ⚠️ **Security Warning**: `tui-workflow` executes arbitrary shell scripts with your full user privileges. Only run workflow files from trusted sources.
+> ⚠️ **Security Warning**: `curre` executes arbitrary shell scripts with your full user privileges. Only run workflow files from trusted sources.
+
+> 📝 **About the name**
+> *Curre* — Latin for **"Run!"**[^1]
 
 ## Features
 
@@ -21,39 +24,39 @@ A JSON-driven terminal UI for running sequenced, parameterised shell workflows.
 ### From GitHub (latest)
 
 ```bash
-go install github.com/tonycsoka/tui-workflow@latest
+go install github.com/tonycsoka/curre@latest
 ```
 
 Then run it directly:
 
 ```bash
-tui-workflow <workflow.json>
+curre <workflow.json>
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/tonycsoka/tui-workflow.git
-cd tui-workflow
+git clone https://github.com/tonycsoka/curre.git
+cd curre
 go build .
 ```
 
 ## Usage
 
 ```bash
-./tui-workflow <workflow.json>
+./curre <workflow.json>
 ```
 
 Example:
 
 ```bash
-./tui-workflow examples/deploy.json
+./curre examples/deploy.json
 ```
 
 A comprehensive demo showing all features:
 
 ```bash
-./tui-workflow examples/full-demo.json
+./curre examples/full-demo.json
 ```
 
 ## Workflow JSON Format
@@ -184,7 +187,7 @@ Sessions are automatically created and saved. Each session has a unique name bas
 
 **Session storage:**
 ```
-~/.local/share/tui-workflow/sessions/
+~/.local/share/curre/sessions/
   <cwd-hash>/
     <workflow-name>/
       <datetime>.json
@@ -226,3 +229,5 @@ go test -v
 ## License
 
 MIT
+
+[^1]: It also echoes the Spanish colloquial *curre*, meaning "work" or "job". Either way, it gets things done.

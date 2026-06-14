@@ -13,7 +13,7 @@ import (
 )
 
 func logWarning(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "tui-workflow: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "curre: "+format+"\n", args...)
 }
 
 // StepStatus represents the execution state of a step.
@@ -69,9 +69,9 @@ func NewSession(wf *Workflow, cwd string) *Session {
 func SessionDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".tui-workflow/sessions"
+		return ".curre/sessions"
 	}
-	return filepath.Join(home, ".local", "share", "tui-workflow", "sessions")
+	return filepath.Join(home, ".local", "share", "curre", "sessions")
 }
 
 // cwdHash returns the first 8 bytes of the SHA256 hash of the cwd.
@@ -81,7 +81,7 @@ func cwdHash(cwd string) string {
 }
 
 // SessionPath returns the file path for a session based on workflow name, cwd, and session name.
-// Structure: ~/.local/share/tui-workflow/sessions/<cwd-hash>/<workflow-name>/<session-name>.json
+// Structure: ~/.local/share/curre/sessions/<cwd-hash>/<workflow-name>/<session-name>.json
 func SessionPath(workflowName, cwd, sessionName string) string {
 	// Sanitize colons to dashes so the filename is safe on all filesystems.
 	safeName := strings.ReplaceAll(sessionName, ":", "-")

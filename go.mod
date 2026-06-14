@@ -1,4 +1,4 @@
-module tui-workflow
+module github.com/tonycsoka/curre
 
 go 1.25.8
 
