@@ -10,7 +10,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: tui-workflow <workflow.json>")
+		fmt.Println("Usage: curre <workflow.json>")
 		os.Exit(1)
 	}
 

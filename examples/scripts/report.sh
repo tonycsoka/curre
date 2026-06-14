@@ -30,7 +30,7 @@ triggers glamour rendering with a dark theme.
 
 ```bash
 #!/bin/bash
-./tui-workflow examples/full-demo.json
+./curre examples/full-demo.json
 ```
 
 > This step is marked as **run-once per session** (⊘). After it succeeds,

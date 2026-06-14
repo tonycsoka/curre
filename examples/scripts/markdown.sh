@@ -5,7 +5,7 @@ cat <<'EOF'
 
 ## Overview
 
-This is a **demonstration** of the `markdown` output type in `tui-workflow`.
+This is a **demonstration** of the `markdown` output type in `curre`.
 
 ## Features
 
